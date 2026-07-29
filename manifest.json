@@ -1,0 +1,11 @@
+{
+  "id": "ai-vault-chat",
+  "name": "AI Vault Chat",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Vault-based AI chat sessions with local gateway support.",
+  "author": "",
+  "authorUrl": "",
+  "fundingUrl": "",
+  "isDesktopOnly": true
+}

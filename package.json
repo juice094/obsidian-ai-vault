@@ -4,10 +4,16 @@
   "description": "AI session engine and Obsidian plugin for vault-based chat notes",
   "main": "src/format.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "obsidian": "^1.13.1"
+  }
 }

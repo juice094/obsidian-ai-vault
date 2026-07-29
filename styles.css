@@ -1,0 +1,100 @@
+.ai-vault-chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.ai-vault-chat-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-vault-chat-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ai-vault-chat-context-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9em;
+}
+
+.ai-vault-chat-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.ai-vault-chat-empty {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.ai-vault-chat-session-item {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ai-vault-chat-session-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ai-vault-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--background-primary);
+}
+
+.ai-vault-chat-input-area {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ai-vault-chat-input {
+  flex: 1;
+  resize: none;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+}
+
+.ai-vault-chat-send-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ai-vault-chat-send-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-vault-chat-status {
+  margin-top: 6px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  min-height: 1.2em;
+}
