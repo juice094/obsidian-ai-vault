@@ -1,8 +1,8 @@
+"use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -16,7 +16,6 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // main.ts
 var main_exports = {};
@@ -611,18 +610,10 @@ function makeVaultIO(adapter) {
 var AiVaultChatView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
-    __publicField(this, "plugin");
-    __publicField(this, "containerEl");
-    __publicField(this, "messagesEl");
-    __publicField(this, "inputEl");
-    __publicField(this, "sendBtnEl");
-    __publicField(this, "contextToggleEl");
-    __publicField(this, "sessionListEl");
-    __publicField(this, "statusEl");
-    __publicField(this, "engine", null);
-    __publicField(this, "currentPath", null);
-    __publicField(this, "isStreaming", false);
-    __publicField(this, "renderTimer", null);
+    this.engine = null;
+    this.currentPath = null;
+    this.isStreaming = false;
+    this.renderTimer = null;
     this.plugin = plugin;
   }
   getViewType() {
@@ -635,7 +626,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     return "message-square";
   }
   async onOpen() {
-    this.containerEl = this.contentEl.createDiv({ cls: "ai-vault-chat-container" });
+    this.rootEl = this.contentEl.createDiv({ cls: "ai-vault-chat-container" });
     this.renderLayout();
     await this.loadSessionList();
     this.registerEvent(this.app.vault.on("create", (file) => this.onVaultChange(file)));
@@ -648,8 +639,8 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     }
   }
   renderLayout() {
-    this.containerEl.empty();
-    const toolbar = this.containerEl.createDiv({ cls: "ai-vault-chat-toolbar" });
+    this.rootEl.empty();
+    const toolbar = this.rootEl.createDiv({ cls: "ai-vault-chat-toolbar" });
     toolbar.createEl("button", { text: "\u65B0\u4F1A\u8BDD", cls: "ai-vault-chat-btn" }, (btn) => {
       btn.addEventListener("click", () => this.newSession());
     });
@@ -660,9 +651,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
       this.contextToggleEl = label.createEl("input", { type: "checkbox" });
       label.appendText(" \u5F53\u524D\u7B14\u8BB0\u4F5C\u4E0A\u4E0B\u6587");
     });
-    this.sessionListEl = this.containerEl.createDiv({ cls: "ai-vault-chat-sessions" });
-    this.messagesEl = this.containerEl.createDiv({ cls: "ai-vault-chat-messages" });
-    const inputArea = this.containerEl.createDiv({ cls: "ai-vault-chat-input-area" });
+    this.sessionListEl = this.rootEl.createDiv({ cls: "ai-vault-chat-sessions" });
+    this.messagesEl = this.rootEl.createDiv({ cls: "ai-vault-chat-messages" });
+    const inputArea = this.rootEl.createDiv({ cls: "ai-vault-chat-input-area" });
     this.inputEl = inputArea.createEl("textarea", {
       cls: "ai-vault-chat-input",
       attr: { placeholder: "\u8F93\u5165\u6D88\u606F\u2026", rows: "3" }
@@ -678,7 +669,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
         this.onSend();
       }
     });
-    this.statusEl = this.containerEl.createDiv({ cls: "ai-vault-chat-status" });
+    this.statusEl = this.rootEl.createDiv({ cls: "ai-vault-chat-status" });
   }
   async loadSessionList() {
     this.sessionListEl.empty();
@@ -812,7 +803,6 @@ ${body}`;
 var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
-    __publicField(this, "plugin");
     this.plugin = plugin;
   }
   display() {
@@ -855,10 +845,6 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
   }
 };
 var AiVaultChatPlugin = class extends import_obsidian.Plugin {
-  constructor() {
-    super(...arguments);
-    __publicField(this, "settings");
-  }
   async onload() {
     await this.loadSettings();
     this.registerView(VIEW_TYPE_AI_CHAT, (leaf) => new AiVaultChatView(leaf, this));

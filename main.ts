@@ -58,13 +58,13 @@ function makeVaultIO(adapter: any) {
 
 class AiVaultChatView extends ItemView {
   plugin: AiVaultChatPlugin;
-  private containerEl: HTMLElement;
-  private messagesEl: HTMLElement;
-  private inputEl: HTMLTextAreaElement;
-  private sendBtnEl: HTMLButtonElement;
-  private contextToggleEl: HTMLInputElement;
-  private sessionListEl: HTMLElement;
-  private statusEl: HTMLElement;
+  private rootEl!: HTMLElement;
+  private messagesEl!: HTMLElement;
+  private inputEl!: HTMLTextAreaElement;
+  private sendBtnEl!: HTMLButtonElement;
+  private contextToggleEl!: HTMLInputElement;
+  private sessionListEl!: HTMLElement;
+  private statusEl!: HTMLElement;
   private engine: SessionEngine | null = null;
   private currentPath: string | null = null;
   private isStreaming = false;
@@ -87,7 +87,7 @@ class AiVaultChatView extends ItemView {
   }
 
   async onOpen() {
-    this.containerEl = this.contentEl.createDiv({ cls: 'ai-vault-chat-container' });
+    this.rootEl = this.contentEl.createDiv({ cls: 'ai-vault-chat-container' });
     this.renderLayout();
     await this.loadSessionList();
     this.registerEvent(this.app.vault.on('create', (file: TAbstractFile) => this.onVaultChange(file)));
@@ -102,10 +102,10 @@ class AiVaultChatView extends ItemView {
   }
 
   private renderLayout() {
-    this.containerEl.empty();
+    this.rootEl.empty();
 
     // 顶部工具栏
-    const toolbar = this.containerEl.createDiv({ cls: 'ai-vault-chat-toolbar' });
+    const toolbar = this.rootEl.createDiv({ cls: 'ai-vault-chat-toolbar' });
     toolbar.createEl('button', { text: '新会话', cls: 'ai-vault-chat-btn' }, (btn) => {
       btn.addEventListener('click', () => this.newSession());
     });
@@ -118,13 +118,13 @@ class AiVaultChatView extends ItemView {
     });
 
     // 会话列表
-    this.sessionListEl = this.containerEl.createDiv({ cls: 'ai-vault-chat-sessions' });
+    this.sessionListEl = this.rootEl.createDiv({ cls: 'ai-vault-chat-sessions' });
 
     // 消息区
-    this.messagesEl = this.containerEl.createDiv({ cls: 'ai-vault-chat-messages' });
+    this.messagesEl = this.rootEl.createDiv({ cls: 'ai-vault-chat-messages' });
 
     // 输入区
-    const inputArea = this.containerEl.createDiv({ cls: 'ai-vault-chat-input-area' });
+    const inputArea = this.rootEl.createDiv({ cls: 'ai-vault-chat-input-area' });
     this.inputEl = inputArea.createEl('textarea', {
       cls: 'ai-vault-chat-input',
       attr: { placeholder: '输入消息…', rows: '3' },
@@ -142,7 +142,7 @@ class AiVaultChatView extends ItemView {
     });
 
     // 状态栏
-    this.statusEl = this.containerEl.createDiv({ cls: 'ai-vault-chat-status' });
+    this.statusEl = this.rootEl.createDiv({ cls: 'ai-vault-chat-status' });
   }
 
   private async loadSessionList() {
@@ -202,7 +202,7 @@ class AiVaultChatView extends ItemView {
       search: this.plugin.settings.search,
       vaultIO,
       tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
-      onEvent: (e) => {
+      onEvent: (e: import('./src/engine.js').EngineEvent) => {
         if (e.type === 'content-delta' || e.type === 'think-delta') {
           this.debouncedRender();
         } else if (e.type === 'search-done') {
@@ -370,7 +370,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 }
 
 export default class AiVaultChatPlugin extends Plugin {
-  settings: AiVaultChatSettings;
+  settings!: AiVaultChatSettings;
 
   async onload() {
     await this.loadSettings();
