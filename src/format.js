@@ -207,8 +207,9 @@ function serializeCallout(type, toggle, title, content) {
   const marker = toggle ? `[!${type}]${toggle}` : `[!${type}]`;
   const lines = content ? content.split('\n') : [];
   const body = lines.map(l => `> ${l}`).join('\n');
-  if (!body) return `> ${marker} ${title}`;
-  return `> ${marker} ${title}\n${body}`;
+  const heading = title ? `> ${marker} ${title}` : `> ${marker}`;
+  if (!body) return heading;
+  return `${heading}\n${body}`;
 }
 
 export function serializeTurn(turn) {
