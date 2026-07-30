@@ -232,6 +232,7 @@ export class SessionEngine {
   async _ensureSession(userText) {
     if (this.sessionPath) return;
     const dir = 'AI 会话';
+    await this.vaultIO.mkdir(dir);
     const date = todayDate();
     const title = titleFromUserText(userText);
     const base = `${dir}/${date} ${title}.md`;

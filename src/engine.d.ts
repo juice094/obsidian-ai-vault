@@ -4,6 +4,7 @@ export interface VaultIO {
   append(path: string, text: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   rename(oldPath: string, newPath: string): Promise<void>;
+  mkdir(path: string): Promise<void>;
 }
 
 export interface EngineEvent {

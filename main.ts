@@ -53,6 +53,11 @@ function makeVaultIO(adapter: any) {
     rename: async (oldPath: string, newPath: string) => {
       await adapter.rename(oldPath, newPath);
     },
+    mkdir: async (path: string) => {
+      if (!(await adapter.exists(path))) {
+        await adapter.mkdir(path);
+      }
+    },
   };
 }
 
@@ -203,7 +208,11 @@ class AiVaultChatView extends ItemView {
       vaultIO,
       tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
       onEvent: (e: import('./src/engine.js').EngineEvent) => {
-        if (e.type === 'content-delta' || e.type === 'think-delta') {
+        if (e.type === 'user-saved') {
+          this.currentPath = e.path || null;
+          this.loadSessionList();
+          this.renderMessages();
+        } else if (e.type === 'content-delta' || e.type === 'think-delta') {
           this.debouncedRender();
         } else if (e.type === 'search-done') {
           this.debouncedRender();

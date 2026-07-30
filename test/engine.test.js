@@ -5,6 +5,7 @@ import { SessionEngine } from '../src/engine.js';
 
 function makeVaultIO() {
   const files = new Map();
+  const dirs = new Set();
   return {
     read: async (path) => files.get(path) || '',
     write: async (path, text) => files.set(path, text),
@@ -15,7 +16,9 @@ function makeVaultIO() {
       files.delete(oldPath);
       files.set(newPath, text);
     },
+    mkdir: async (path) => { dirs.add(path); },
     _files: files,
+    _dirs: dirs,
   };
 }
 
@@ -204,5 +207,89 @@ writing...
     const md = vaultIO._files.get(engine.sessionPath);
     assert.ok(md.includes('> [!warning]- 本轮中断'));
     assert.ok(md.includes('<!-- ai:end -->'));
+  });
+
+  it('creates AI 会话 directory before writing the first session file', async () => {
+    const files = new Map();
+    const dirs = new Set();
+    const vaultIO = {
+      read: async (path) => files.get(path) || '',
+      write: async (path, text) => {
+        if (!dirs.has('AI 会话')) {
+          const err = new Error(`ENOENT: no such file or directory, open '${path}'`);
+          err.code = 'ENOENT';
+          throw err;
+        }
+        files.set(path, text);
+      },
+      append: async (path, text) => files.set(path, (files.get(path) || '') + text),
+      exists: async (path) => files.has(path),
+      rename: async (oldPath, newPath) => {
+        const text = files.get(oldPath);
+        files.delete(oldPath);
+        files.set(newPath, text);
+      },
+      mkdir: async (path) => { dirs.add(path); },
+    };
+
+    const { server, url } = await startMockServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(mockSseStream());
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+      });
+
+      await assert.doesNotReject(async () => engine.send('hello world'));
+      assert.ok(dirs.has('AI 会话'));
+      assert.ok(engine.sessionPath.startsWith('AI 会话/'));
+      assert.ok(files.has(engine.sessionPath));
+    } finally {
+      server.close();
+    }
+  });
+
+  it('emits user-saved event with the new session path so the view can switch to it', async () => {
+    const vaultIO = makeVaultIO();
+    const events = [];
+
+    const { server, url } = await startMockServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(mockSseStream());
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+        onEvent: (e) => events.push(e),
+      });
+
+      await engine.send('first message');
+
+      const userSaved = events.find(e => e.type === 'user-saved');
+      assert.ok(userSaved);
+      assert.equal(userSaved.path, engine.sessionPath);
+      assert.ok(engine.sessionPath.startsWith('AI 会话/'));
+    } finally {
+      server.close();
+    }
   });
 });

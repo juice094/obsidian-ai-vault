@@ -13,6 +13,7 @@ function makeVaultIO() {
       files.delete(oldPath);
       files.set(newPath, text);
     },
+    mkdir: async () => {},
     _files: files,
   };
 }

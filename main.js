@@ -529,6 +529,7 @@ var SessionEngine = class {
   async _ensureSession(userText) {
     if (this.sessionPath) return;
     const dir = "AI \u4F1A\u8BDD";
+    await this.vaultIO.mkdir(dir);
     const date = todayDate();
     const title = titleFromUserText(userText);
     const base = `${dir}/${date} ${title}.md`;
@@ -625,6 +626,11 @@ function makeVaultIO(adapter) {
     exists: async (path) => adapter.exists(path),
     rename: async (oldPath, newPath) => {
       await adapter.rename(oldPath, newPath);
+    },
+    mkdir: async (path) => {
+      if (!await adapter.exists(path)) {
+        await adapter.mkdir(path);
+      }
     }
   };
 }
@@ -742,7 +748,11 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
       vaultIO,
       tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
       onEvent: (e) => {
-        if (e.type === "content-delta" || e.type === "think-delta") {
+        if (e.type === "user-saved") {
+          this.currentPath = e.path || null;
+          this.loadSessionList();
+          this.renderMessages();
+        } else if (e.type === "content-delta" || e.type === "think-delta") {
           this.debouncedRender();
         } else if (e.type === "search-done") {
           this.debouncedRender();
