@@ -56,9 +56,26 @@ T5 Android 载体（魔改 Obsidian APK / WebView 注入）尚未就绪，当前
 
 故 Android 补测不再阻塞 R3 取消决策。若后续 T5 完成需要补录 Android 数字，可直接复用 `bench/measure.js` 在 WebView 环境中执行。
 
+## R1 修复后复测
+
+使用 `src/engine.js` 的批处理实现（150ms / 4KB 缓冲，turn 结束强制 flush），复测同样的 2000 字符 / 100 delta 场景：
+
+| 指标 | 修复前 | 修复后 |
+| --- | --- | --- |
+| vaultIO.write 调用次数 | 100 | 4 |
+| 总写字节 | 715300 | 12949 |
+| 放大系数 | **119.22x** | **2.16x** |
+
+满足 R1 验收标准：`write` 次数 ≤ 10，放大系数 < 5x。
+
+## go/no-go 结论（最终）
+
+1. **R3 引擎核心 Rust 化**：**NO-GO**，取消。
+2. **R1 流式写盘批处理**：**HIGHEST**，已完成并验证通过。
+
 ## 后续动作
 
 - [x] R0 报告产出
-- [ ] R1 流式写盘批处理（JS）
+- [x] R1 流式写盘批处理（JS）
 - [ ] R2 Android 内置 gateway（Rust）
 - [x] R3 取消标记（R0 未达标，2026-07-30）

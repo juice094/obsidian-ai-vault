@@ -123,10 +123,33 @@ export class SessionEngine {
       bodyBlocks: [],
       aiBeginId: turn.id,
     };
-    let bodyText = '';
-    let thinkText = '';
+    let bodyBuffer = '';
+    let thinkBuffer = '';
     let searchResults = null;
     let usage = null;
+    let lastFlushAt = performance.now();
+
+    // ponytail: 流式 delta 先进入内存缓冲，按时间（150ms）或体积（4KB）批量落盘。
+    // UI 回调不受批处理影响；崩溃恢复语义不变（无 ai:end 即进行中）。
+    const FLUSH_INTERVAL_MS = 150;
+    const FLUSH_SIZE_CHARS = 4096;
+
+    const flush = async (force = false) => {
+      const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+      if (!force && bufferedChars === 0) return;
+      turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [];
+      turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+      await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
+      lastFlushAt = performance.now();
+    };
+
+    const maybeFlush = async () => {
+      const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+      const elapsed = performance.now() - lastFlushAt;
+      if (elapsed >= FLUSH_INTERVAL_MS || bufferedChars >= FLUSH_SIZE_CHARS) {
+        await flush();
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
@@ -138,26 +161,29 @@ export class SessionEngine {
         const result = this._processSseLine(line);
         if (!result) continue;
         if (result.type === 'content') {
-          bodyText += result.delta;
-          turnState.bodyBlocks = bodyText ? bodyText.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [];
+          bodyBuffer += result.delta;
+          turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [];
           this.onEvent({ type: 'content-delta', delta: result.delta });
+          await maybeFlush();
         } else if (result.type === 'reasoning') {
-          thinkText += result.delta;
-          turnState.thinks = thinkText ? [{ elapsedSecs: null, text: thinkText }] : [];
+          thinkBuffer += result.delta;
+          turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
           this.onEvent({ type: 'think-delta', delta: result.delta });
+          await maybeFlush();
         } else if (result.type === 'search_results') {
           searchResults = result.results;
           turnState.searches = [this._toSearchEntry(result.results)];
           this.onEvent({ type: 'search-done', results: result.results.results });
+          await flush(true);
         } else if (result.type === 'finish') {
           usage = result.usage;
         }
-        // 每次 delta 后重写整个当前 turn 区段（保持文件实时可解析）
-        await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
       }
     }
 
-    // 最终版：inProgress=false，带 meta
+    // turn 结束时强制 flush，写入带 meta / ai:end 的最终版
+    await flush(true);
+
     const finalTurn = {
       ...turnState,
       meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),

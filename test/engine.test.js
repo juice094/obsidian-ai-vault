@@ -127,6 +127,51 @@ describe('SessionEngine', () => {
     }
   });
 
+  it('batches streaming writes to reduce disk amplification', async () => {
+    const vaultIO = makeVaultIO();
+    let writeCount = 0;
+    const originalWrite = vaultIO.write;
+    vaultIO.write = async (path, text) => {
+      writeCount++;
+      return originalWrite(path, text);
+    };
+
+    const lines = [
+      'data: {"id":"cmpl-1","object":"chat.completion.chunk","created":1,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\n',
+    ];
+    for (let i = 0; i < 100; i++) {
+      lines.push('data: {"id":"cmpl-1","object":"chat.completion.chunk","created":1,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"答案"}}]}\n\n');
+    }
+    lines.push('data: {"id":"cmpl-1","object":"chat.completion.chunk","created":1,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n');
+    lines.push('data: [DONE]\n\n');
+
+    const { server, url } = await startMockServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(lines.join(''));
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+      });
+      await engine.send('流式写入批处理测试');
+      assert.ok(writeCount <= 10, `expected <= 10 writes, got ${writeCount}`);
+      const md = vaultIO._files.get(engine.sessionPath);
+      assert.ok(md.includes('答案'.repeat(100)));
+      assert.ok(md.includes('<!-- ai:end -->'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('resume marks in-progress turn as interrupted', async () => {
     const vaultIO = makeVaultIO();
     vaultIO.write('AI 会话/2026-07-29 test.md', `---
