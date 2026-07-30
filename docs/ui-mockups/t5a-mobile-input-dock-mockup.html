@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T5a 移动端 AI×笔记输入坞 UI Mockup</title>
+    <style>
+        :root {
+            --bg: #0d0d0d;
+            --phone-bg: #1e1e1e;
+            --surface: #262626;
+            --surface-2: #2a2a2a;
+            --border: #363636;
+            --text: #d4d4d4;
+            --text-muted: #999;
+            --text-faint: #666;
+            --accent: #7c3aed;
+            --accent-hover: #8b5cf6;
+            --callout-user: #3b82f6;
+            --callout-think: #f59e0b;
+            --callout-search: #10b981;
+            --callout-warning: #ef4444;
+            --obsidian-purple: #7c3aed;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px;
+        }
+        .top-bar {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .top-bar h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .top-bar .sub {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .screen-tabs {
+            display: flex;
+            gap: 8px;
+        }
+        .screen-tab {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .screen-tab.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        .main {
+            display: flex;
+            gap: 28px;
+            align-items: flex-start;
+            width: 100%;
+            max-width: 1200px;
+            justify-content: center;
+        }
+        .phone-shell {
+            flex-shrink: 0;
+            width: 375px;
+            height: 812px;
+            background: #000;
+            border-radius: 44px;
+            padding: 10px;
+            box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+            position: relative;
+        }
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            background: var(--phone-bg);
+            border-radius: 34px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        .notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 28px;
+            background: #000;
+            border-radius: 0 0 18px 18px;
+            z-index: 50;
+        }
+        .app-header {
+            height: 52px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            padding-top: 28px;
+            flex-shrink: 0;
+        }
+        .app-header .left, .app-header .right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 60px;
+        }
+        .app-header .right { justify-content: flex-end; }
+        .app-header .title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            text-align: center;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .icon-btn:hover { color: var(--text); }
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+            background: var(--phone-bg);
+        }
+        .content-area::-webkit-scrollbar { display: none; }
+        .markdown-body {
+            padding: 16px 18px 120px 18px;
+            font-size: 15px;
+            line-height: 1.65;
+            color: var(--text);
+        }
+        .markdown-body h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--text);
+        }
+        .markdown-body p { margin-bottom: 12px; }
+        .markdown-body ul {
+            margin-left: 20px;
+            margin-bottom: 14px;
+        }
+        .markdown-body li { margin-bottom: 6px; }
+        .callout {
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            border-left: 3px solid;
+            background: var(--surface);
+        }
+        .callout-user { border-color: var(--callout-user); }
+        .callout-think { border-color: var(--callout-think); }
+        .callout-search { border-color: var(--callout-search); }
+        .callout-warning { border-color: var(--callout-warning); }
+        .callout-title {
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+        .callout-user .callout-title { color: #60a5fa; }
+        .callout-think .callout-title { color: #fbbf24; }
+        .callout-search .callout-title { color: #34d399; }
+        .callout-warning .callout-title { color: #f87171; }
+        .callout-body {
+            font-size: 14px;
+            color: var(--text-muted);
+            padding-left: 2px;
+        }
+        .callout-fold::before {
+            content: "▶";
+            font-size: 10px;
+            margin-right: 4px;
+            color: var(--text-faint);
+        }
+        .ai-meta {
+            font-size: 11px;
+            color: var(--text-faint);
+            margin: 8px 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .hr {
+            height: 1px;
+            background: var(--border);
+            margin: 18px 0;
+        }
+        .streaming-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 15px;
+            background: var(--accent);
+            border-radius: 1px;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+        }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+        /* Floating action button */
+        .fab {
+            position: absolute;
+            right: 18px;
+            bottom: 90px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 4px 16px rgba(124, 58, 237, 0.45);
+            cursor: pointer;
+            z-index: 30;
+        }
+        .fab:hover { background: var(--accent-hover); }
+
+        /* Input dock */
+        .input-dock {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 10px 14px 28px 14px;
+            z-index: 40;
+        }
+        .dock-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .chip.active {
+            background: rgba(124, 58, 237, 0.18);
+            border-color: var(--accent);
+            color: #c4b5fd;
+        }
+        .chip-toggle {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1.5px solid var(--text-faint);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+        }
+        .chip.active .chip-toggle {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        .dock-input-wrap {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            background: var(--phone-bg);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 8px 10px 8px 14px;
+        }
+        .dock-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 15px;
+            line-height: 1.4;
+            max-height: 96px;
+            resize: none;
+            outline: none;
+            padding: 5px 0;
+        }
+        .dock-input::placeholder { color: var(--text-faint); }
+        .send-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .send-btn:disabled {
+            background: var(--surface-2);
+            color: var(--text-faint);
+        }
+        .dock-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 8px;
+            padding: 0 4px;
+        }
+        .dock-switches {
+            display: flex;
+            gap: 14px;
+        }
+        .switch-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .switch-row .pill {
+            width: 34px;
+            height: 18px;
+            border-radius: 9px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            position: relative;
+            transition: all 0.15s;
+        }
+        .switch-row .pill::after {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            top: 1px;
+            left: 2px;
+            transition: all 0.15s;
+        }
+        .switch-row.on .pill {
+            background: rgba(124, 58, 237, 0.25);
+            border-color: var(--accent);
+        }
+        .switch-row.on .pill::after {
+            background: var(--accent);
+            transform: translateX(15px);
+        }
+        .new-note-btn {
+            font-size: 12px;
+            color: var(--accent-hover);
+            cursor: pointer;
+        }
+
+        /* Generating bar */
+        .generating-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 10px 14px 28px 14px;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .generating-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .stop-btn {
+            padding: 6px 12px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text);
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        /* File list screen */
+        .file-list {
+            padding-top: 8px;
+        }
+        .folder-header {
+            padding: 12px 18px;
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-size: 15px;
+            cursor: pointer;
+        }
+        .nav-row:hover { background: var(--surface); }
+        .nav-row.folder { color: #fbbf24; }
+        .nav-row.note { color: var(--text); }
+        .nav-row .meta {
+            margin-left: auto;
+            font-size: 12px;
+            color: var(--text-faint);
+        }
+        .empty-hint {
+            padding: 40px 24px;
+            text-align: center;
+            color: var(--text-faint);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* Annotation panel */
+        .annotations {
+            width: 420px;
+            flex-shrink: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            max-height: 812px;
+            overflow-y: auto;
+        }
+        .annotations h2 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 14px;
+            color: var(--text);
+        }
+        .annotation-group {
+            margin-bottom: 18px;
+        }
+        .annotation-group h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .annotation-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .badge {
+            flex-shrink: 0;
+            width: 56px;
+            text-align: center;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            height: fit-content;
+        }
+        .badge.native { background: #1e3a5f; color: #93c5fd; }
+        .badge.injected { background: #3b0764; color: #d8b4fe; }
+        .badge.interaction { background: #292524; color: #d6d3d1; }
+        .annotation-item p { color: var(--text-muted); }
+        .annotation-item strong { color: var(--text); }
+        .legend {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .dot.native { background: #93c5fd; }
+        .dot.injected { background: #d8b4fe; }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        @media (max-width: 900px) {
+            .main { flex-direction: column; align-items: center; }
+            .annotations { width: 100%; max-width: 375px; max-height: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <div>
+            <h1>T5a 移动端 AI×笔记输入坞 UI Mockup</h1>
+            <div class="sub">会话即笔记 · 唯一新增 UI = 输入坞 · 仅在阅读视图出现</div>
+        </div>
+        <div class="screen-tabs">
+            <button class="screen-tab active" onclick="showScreen(0)">屏1</button>
+            <button class="screen-tab" onclick="showScreen(1)">屏2</button>
+            <button class="screen-tab" onclick="showScreen(2)">屏3</button>
+            <button class="screen-tab" onclick="showScreen(3)">屏4</button>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="phone-shell">
+            <div class="phone-screen">
+                <div class="notch"></div>
+
+                <!-- Screen 1: Reading view + collapsed FAB -->
+                <div class="screen active" id="screen-0">
+                    <div class="app-header">
+                        <div class="left">
+                            <span class="icon-btn">←</span>
+                        </div>
+                        <div class="title">syncthing 冲突处理.md</div>
+                        <div class="right">
+                            <span class="icon-btn">⋮</span>
+                        </div>
+                    </div>
+                    <div class="content-area">
+                        <div class="markdown-body">
+                            <div class="callout callout-user">
+                                <div class="callout-title">[!user]</div>
+                                <div class="callout-body">搜索一下 syncthing 冲突文件的最新处理方案，给我一个对比</div>
+                            </div>
+                            <div class="callout callout-search">
+                                <div class="callout-title callout-fold">已阅读 2 个网页 · "syncthing conflict resolution"</div>
+                            </div>
+                            <div class="callout callout-think">
+                                <div class="callout-title callout-fold">已思考 · 41 秒</div>
+                            </div>
+                            <p>目前 Syncthing 的冲突处理有两条路线 <span style="color:var(--accent-hover)">[1]</span>：</p>
+                            <ul>
+                                <li><strong>冲突副本</strong>：检测到并发修改时保留两份。</li>
+                                <li><strong>版本向量仲裁</strong>：通过向量判断哪份更新。</li>
+                            </ul>
+                            <p>推荐的做法是……</p>
+                            <div class="hr"></div>
+                        </div>
+                    </div>
+                    <div class="fab">✦</div>
+                </div>
+
+                <!-- Screen 2: Expanded input dock -->
+                <div class="screen" id="screen-1">
+                    <div class="app-header">
+                        <div class="left">
+                            <span class="icon-btn">←</span>
+                        </div>
+                        <div class="title">syncthing 冲突处理.md</div>
+                        <div class="right">
+                            <span class="icon-btn">⋮</span>
+                        </div>
+                    </div>
+                    <div class="content-area">
+                        <div class="markdown-body" style="padding-bottom: 190px;">
+                            <div class="callout callout-user">
+                                <div class="callout-title">[!user]</div>
+                                <div class="callout-body">搜索一下 syncthing 冲突文件的最新处理方案，给我一个对比</div>
+                            </div>
+                            <div class="callout callout-search">
+                                <div class="callout-title callout-fold">已阅读 2 个网页 · "syncthing conflict resolution"</div>
+                            </div>
+                            <div class="callout callout-think">
+                                <div class="callout-title callout-fold">已思考 · 41 秒</div>
+                            </div>
+                            <p>目前 Syncthing 的冲突处理有两条路线……</p>
+                            <div class="hr"></div>
+                        </div>
+                    </div>
+                    <div class="input-dock">
+                        <div class="dock-toolbar">
+                            <div class="chip active">
+                                <span class="chip-toggle">✓</span>
+                                <span>📎《syncthing 冲突处理》</span>
+                            </div>
+                        </div>
+                        <div class="dock-input-wrap">
+                            <textarea class="dock-input" rows="2" placeholder="询问 AI…"> conflicts aside, which is simpler?</textarea>
+                            <button class="send-btn">↑</button>
+                        </div>
+                        <div class="dock-actions">
+                            <div class="dock-switches">
+                                <div class="switch-row on">
+                                    <span>Model</span>
+                                    <div class="pill"></div>
+                                    <span>expert</span>
+                                </div>
+                                <div class="switch-row on">
+                                    <span>搜索</span>
+                                    <div class="pill"></div>
+                                </div>
+                            </div>
+                            <div class="new-note-btn">+ 新会话</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Screen 3: Streaming in progress -->
+                <div class="screen" id="screen-2">
+                    <div class="app-header">
+                        <div class="left">
+                            <span class="icon-btn">←</span>
+                        </div>
+                        <div class="title">syncthing 冲突处理.md</div>
+                        <div class="right">
+                            <span class="icon-btn">⋮</span>
+                        </div>
+                    </div>
+                    <div class="content-area">
+                        <div class="markdown-body">
+                            <div class="callout callout-user">
+                                <div class="callout-title">[!user]</div>
+                                <div class="callout-body">conflicts aside, which is simpler?</div>
+                            </div>
+                            <div class="callout callout-search">
+                                <div class="callout-title callout-fold">已阅读 3 个网页 · "syncthing simpler conflict"</div>
+                            </div>
+                            <div class="callout callout-think">
+                                <div class="callout-title callout-fold">已思考 · 12 秒</div>
+                            </div>
+                            <p>如果不考虑并发冲突，最简单的是<strong>冲突副本</strong>策略：当两端同时改同一个文件时，Syncthing 会保留一份 <code>.sync-conflict-日期-设备名</code> 副本，用户手动合并即可。<span class="streaming-cursor"></span></p>
+                        </div>
+                    </div>
+                    <div class="generating-bar">
+                        <div class="generating-info">
+                            <div class="spinner"></div>
+                            <span>正在生成…</span>
+                        </div>
+                        <button class="stop-btn">⏹ 停止</button>
+                    </div>
+                </div>
+
+                <!-- Screen 4: AI Sessions folder list -->
+                <div class="screen" id="screen-3">
+                    <div class="app-header">
+                        <div class="left">
+                            <span class="icon-btn">←</span>
+                        </div>
+                        <div class="title">AI 会话</div>
+                        <div class="right">
+                            <span class="icon-btn">🔍</span>
+                            <span class="icon-btn">⋮</span>
+                        </div>
+                    </div>
+                    <div class="content-area">
+                        <div class="folder-header">
+                            <span>📁 vault / AI 会话</span>
+                        </div>
+                        <div class="file-list">
+                            <div class="nav-row folder">
+                                <span>📁</span>
+                                <span>归档</span>
+                            </div>
+                            <div class="nav-row note">
+                                <span>📄</span>
+                                <span>2026-07-30 syncthing 冲突处理.md</span>
+                                <span class="meta">14:03</span>
+                            </div>
+                            <div class="nav-row note">
+                                <span>📄</span>
+                                <span>2026-07-29 旅行预算表.md</span>
+                                <span class="meta">昨天</span>
+                            </div>
+                            <div class="nav-row note">
+                                <span>📄</span>
+                                <span>2026-07-28 项目规划.md</span>
+                                <span class="meta">7/28</span>
+                            </div>
+                            <div class="nav-row note">
+                                <span>📄</span>
+                                <span>2026-07-28 未命名会话.md</span>
+                                <span class="meta">7/28</span>
+                            </div>
+                            <div class="empty-hint">
+                                这就是会话历史。<br>
+                                新建、搜索、切换全部用 Obsidian 原生能力。<br>
+                                无新增列表 UI。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="annotations">
+            <h2>注记层：当前屏 <span id="screen-label">屏1</span></h2>
+            <div class="legend">
+                <div class="legend-item"><span class="dot native"></span>Obsidian 原生渲染（不可改样式）</div>
+                <div class="legend-item"><span class="dot injected"></span>注入 DOM（可自定义）</div>
+            </div>
+
+            <div id="annotation-content">
+                <div class="annotation-group">
+                    <h3>屏1：阅读视图 + 收起态输入坞</h3>
+                    <div class="annotation-item">
+                        <span class="badge native">原生</span>
+                        <p><strong>笔记标题栏、返回键、⋮ 菜单</strong>：Obsidian 移动端阅读视图原生 Chrome。不注入、不覆盖。</p>
+                    </div>
+                    <div class="annotation-item">
+                        <span class="badge native">原生</span>
+                        <p><strong>Markdown 正文与 callout</strong>：由 Obsidian 渲染引擎输出；<code>[!user]</code>、<code>[!think]</code>、<code>[!search]</code> 等折叠 callout 即移动端聊天气泡观感。</p>
+                    </div>
+                    <div class="annotation-item">
+                        <span class="badge injected">注入</span>
+                        <p><strong>右下角悬浮钮 ✦</strong>：唯一新增 UI 元素。仅在阅读视图注入；编辑视图不出现，避免流式改写与 Obsidian 外部修改检测冲突。</p>
+                    </div>
+                    <div class="annotation-item">
+                        <span class="badge interaction">交互</span>
+                        <p><strong>点击 FAB</strong> → 展开输入坞；<strong>长按 FAB</strong>（可选）→ 直接唤起最近一次会话的输入坞。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const annotations = [
+            // Screen 1 annotations (already in HTML above as default)
+            document.getElementById('annotation-content').innerHTML,
+            // Screen 2
+            `<div class="annotation-group">
+                <h3>屏2：输入坞展开态</h3>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>输入坞整体</strong>：固定底部浮层，覆盖在 Obsidian 阅读视图之上，不破坏原页面滚动。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>上下文 chip "📎《当前笔记名》"</strong>：默认开启（当前阅读笔记作为首条 user 消息前缀）；点击 chip 可关闭。关闭后本次发送不再携带全文。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>Model 开关</strong>：切换 default / expert；与 frontmatter 的 <code>model</code> 字段同步。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>搜索开关</strong>：控制本轮是否请求 gateway 输出 search_results。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>+ 新会话</strong>：在 <code>AI 会话/</code> 下创建新 md（frontmatter + 空正文）并打开。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>发送</strong>：append <code>&gt; [!user]</code> 到当前 md → 调用引擎流式写入。输入框保持聚焦以便多轮连续提问。</p>
+                </div>
+            </div>`,
+            // Screen 3
+            `<div class="annotation-group">
+                <h3>屏3：流式进行中</h3>
+                <div class="annotation-item">
+                    <span class="badge native">原生</span>
+                    <p><strong>折叠 think/search callout</strong>：Obsidian 原生折叠块，默认收起，减少视觉噪音；用户可点击展开查看中间过程。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>正文区流式追加 + 紫色光标</strong>：引擎通过 vaultIO <code>append</code> 持续写 md；UI 层在阅读视图末尾显示闪烁光标，提示仍在生成。不滚动劫持，用户主动上翻后暂停自动滚底。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>底部生成条</strong>：显示"正在生成…"与停止按钮。停止后引擎中断 SSE，并在 md 末尾补 <code>&gt; [!warning]- 本轮中断</code> 与 <code>&lt;!-- ai:end --&gt;</code>。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>点击停止 / 系统返回键</strong>：触发引擎 <code>abort()</code>；下次打开同一会话时由 T2 解析器识别未完成轮次，提供 resume。</p>
+                </div>
+            </div>`,
+            // Screen 4
+            `<div class="annotation-group">
+                <h3>屏4：会话历史 = 文件夹列表</h3>
+                <div class="annotation-item">
+                    <span class="badge native">原生</span>
+                    <p><strong>整个文件浏览器</strong>：Obsidian 原生文件列表视图。不注入任何新列表、搜索或切换 UI。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge native">原生</span>
+                    <p><strong>🔍 搜索 / 快速切换器</strong>：用户用 Obsidian 全局搜索或快速切换器定位会话；会话即笔记，自然可被双链、反链、图谱索引。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>点击 md</strong> → 进入阅读视图 → 自动注入输入坞；长按 md → Obsidian 原生菜单（重命名、移动、删除）。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>新建会话入口</strong>：仅存在于输入坞展开态的"+ 新会话"；不在文件列表加按钮，避免与 Obsidian 原生"新建笔记"重复。</p>
+                </div>
+            </div>`
+        ];
+
+        function showScreen(index) {
+            document.querySelectorAll('.screen').forEach((s, i) => s.classList.toggle('active', i === index));
+            document.querySelectorAll('.screen-tab').forEach((t, i) => t.classList.toggle('active', i === index));
+            document.getElementById('screen-label').textContent = '屏' + (index + 1);
+            document.getElementById('annotation-content').innerHTML = annotations[index];
+        }
+    </script>
+</body>
+</html>
