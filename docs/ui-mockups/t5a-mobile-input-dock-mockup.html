@@ -35,7 +35,7 @@
         }
         .top-bar {
             width: 100%;
-            max-width: 1200px;
+            max-width: 1300px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -74,7 +74,7 @@
             gap: 28px;
             align-items: flex-start;
             width: 100%;
-            max-width: 1200px;
+            max-width: 1300px;
             justify-content: center;
         }
         .phone-shell {
@@ -167,6 +167,11 @@
             margin-bottom: 12px;
             color: var(--text);
         }
+        .markdown-body h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 18px 0 10px;
+        }
         .markdown-body p { margin-bottom: 12px; }
         .markdown-body ul {
             margin-left: 20px;
@@ -230,11 +235,45 @@
         }
         @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
+        /* Native bottom toolbar */
+        .native-bottom-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 90px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-around;
+            padding-top: 10px;
+            z-index: 20;
+        }
+        .native-bottom-bar .tool {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .native-bottom-bar .tool .tool-icon {
+            width: 26px;
+            height: 26px;
+            border-radius: 5px;
+            background: var(--surface-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
         /* Floating action button */
         .fab {
             position: absolute;
             right: 18px;
-            bottom: 90px;
+            bottom: 108px;
             width: 52px;
             height: 52px;
             border-radius: 50%;
@@ -283,6 +322,10 @@
             background: rgba(124, 58, 237, 0.18);
             border-color: var(--accent);
             color: #c4b5fd;
+        }
+        .chip.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         .chip-toggle {
             width: 16px;
@@ -349,6 +392,7 @@
         .dock-switches {
             display: flex;
             gap: 14px;
+            align-items: center;
         }
         .switch-row {
             display: flex;
@@ -385,6 +429,23 @@
         .switch-row.on .pill::after {
             background: var(--accent);
             transform: translateX(15px);
+        }
+        .segment-control {
+            display: flex;
+            background: var(--phone-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .segment-control .segment {
+            padding: 4px 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .segment-control .segment.active {
+            background: rgba(124, 58, 237, 0.25);
+            color: #c4b5fd;
         }
         .new-note-btn {
             font-size: 12px;
@@ -541,6 +602,7 @@
         }
         .dot.native { background: #93c5fd; }
         .dot.injected { background: #d8b4fe; }
+        .dot.interaction { background: #d6d3d1; }
 
         .screen { display: none; }
         .screen.active { display: block; }
@@ -562,6 +624,7 @@
             <button class="screen-tab" onclick="showScreen(1)">屏2</button>
             <button class="screen-tab" onclick="showScreen(2)">屏3</button>
             <button class="screen-tab" onclick="showScreen(3)">屏4</button>
+            <button class="screen-tab" onclick="showScreen(4)">屏5</button>
         </div>
     </div>
 
@@ -570,7 +633,7 @@
             <div class="phone-screen">
                 <div class="notch"></div>
 
-                <!-- Screen 1: Reading view + collapsed FAB -->
+                <!-- Screen 1: Session note reading view + collapsed FAB -->
                 <div class="screen active" id="screen-0">
                     <div class="app-header">
                         <div class="left">
@@ -584,7 +647,7 @@
                     <div class="content-area">
                         <div class="markdown-body">
                             <div class="callout callout-user">
-                                <div class="callout-title">[!user]</div>
+                                <div class="callout-title">你</div>
                                 <div class="callout-body">搜索一下 syncthing 冲突文件的最新处理方案，给我一个对比</div>
                             </div>
                             <div class="callout callout-search">
@@ -603,9 +666,15 @@
                         </div>
                     </div>
                     <div class="fab">✦</div>
+                    <div class="native-bottom-bar">
+                        <div class="tool"><div class="tool-icon">≡</div><span>菜单</span></div>
+                        <div class="tool"><div class="tool-icon">⌘</div><span>命令</span></div>
+                        <div class="tool"><div class="tool-icon">✎</div><span>编辑</span></div>
+                        <div class="tool"><div class="tool-icon">＋</div><span>新建</span></div>
+                    </div>
                 </div>
 
-                <!-- Screen 2: Expanded input dock -->
+                <!-- Screen 2: Expanded input dock on session note -->
                 <div class="screen" id="screen-1">
                     <div class="app-header">
                         <div class="left">
@@ -619,7 +688,7 @@
                     <div class="content-area">
                         <div class="markdown-body" style="padding-bottom: 190px;">
                             <div class="callout callout-user">
-                                <div class="callout-title">[!user]</div>
+                                <div class="callout-title">你</div>
                                 <div class="callout-body">搜索一下 syncthing 冲突文件的最新处理方案，给我一个对比</div>
                             </div>
                             <div class="callout callout-search">
@@ -634,9 +703,9 @@
                     </div>
                     <div class="input-dock">
                         <div class="dock-toolbar">
-                            <div class="chip active">
-                                <span class="chip-toggle">✓</span>
-                                <span>📎《syncthing 冲突处理》</span>
+                            <div class="chip disabled">
+                                <span class="chip-toggle">−</span>
+                                <span>上下文：本会话</span>
                             </div>
                         </div>
                         <div class="dock-input-wrap">
@@ -645,10 +714,9 @@
                         </div>
                         <div class="dock-actions">
                             <div class="dock-switches">
-                                <div class="switch-row on">
-                                    <span>Model</span>
-                                    <div class="pill"></div>
-                                    <span>expert</span>
+                                <div class="segment-control">
+                                    <div class="segment">default</div>
+                                    <div class="segment active">expert</div>
                                 </div>
                                 <div class="switch-row on">
                                     <span>搜索</span>
@@ -674,7 +742,7 @@
                     <div class="content-area">
                         <div class="markdown-body">
                             <div class="callout callout-user">
-                                <div class="callout-title">[!user]</div>
+                                <div class="callout-title">你</div>
                                 <div class="callout-body">conflicts aside, which is simpler?</div>
                             </div>
                             <div class="callout callout-search">
@@ -745,6 +813,68 @@
                     </div>
                 </div>
 
+                <!-- Screen 5: Regular note reading view + expanded dock -->
+                <div class="screen" id="screen-4">
+                    <div class="app-header">
+                        <div class="left">
+                            <span class="icon-btn">←</span>
+                        </div>
+                        <div class="title">旅行预算表.md</div>
+                        <div class="right">
+                            <span class="icon-btn">⋮</span>
+                        </div>
+                    </div>
+                    <div class="content-area">
+                        <div class="markdown-body" style="padding-bottom: 190px;">
+                            <h1>旅行预算表</h1>
+                            <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
+                                <tr style="border-bottom:1px solid var(--border)">
+                                    <td style="padding:6px; color:var(--text-muted)">项目</td>
+                                    <td style="padding:6px; color:var(--text-muted)">预算</td>
+                                </tr>
+                                <tr style="border-bottom:1px solid var(--border)">
+                                    <td style="padding:6px">机票</td>
+                                    <td style="padding:6px">¥3200</td>
+                                </tr>
+                                <tr style="border-bottom:1px solid var(--border)">
+                                    <td style="padding:6px">酒店</td>
+                                    <td style="padding:6px">¥2400</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:6px">餐饮</td>
+                                    <td style="padding:6px">¥1500</td>
+                                </tr>
+                            </table>
+                            <p>想压缩到 6000 以内……</p>
+                        </div>
+                    </div>
+                    <div class="input-dock">
+                        <div class="dock-toolbar">
+                            <div class="chip active">
+                                <span class="chip-toggle">✓</span>
+                                <span>📎《旅行预算表》</span>
+                            </div>
+                        </div>
+                        <div class="dock-input-wrap">
+                            <textarea class="dock-input" rows="2" placeholder="询问 AI…">怎么把预算压到 6000？</textarea>
+                            <button class="send-btn">↑</button>
+                        </div>
+                        <div class="dock-actions">
+                            <div class="dock-switches">
+                                <div class="segment-control">
+                                    <div class="segment active">default</div>
+                                    <div class="segment">expert</div>
+                                </div>
+                                <div class="switch-row on">
+                                    <span>搜索</span>
+                                    <div class="pill"></div>
+                                </div>
+                            </div>
+                            <div class="new-note-btn">+ 新会话</div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -753,18 +883,23 @@
             <div class="legend">
                 <div class="legend-item"><span class="dot native"></span>Obsidian 原生渲染（不可改样式）</div>
                 <div class="legend-item"><span class="dot injected"></span>注入 DOM（可自定义）</div>
+                <div class="legend-item"><span class="dot interaction"></span>交互行为/状态转换</div>
             </div>
 
             <div id="annotation-content">
                 <div class="annotation-group">
-                    <h3>屏1：阅读视图 + 收起态输入坞</h3>
+                    <h3>屏1：会话笔记阅读视图 + 收起态输入坞</h3>
                     <div class="annotation-item">
                         <span class="badge native">原生</span>
                         <p><strong>笔记标题栏、返回键、⋮ 菜单</strong>：Obsidian 移动端阅读视图原生 Chrome。不注入、不覆盖。</p>
                     </div>
                     <div class="annotation-item">
                         <span class="badge native">原生</span>
-                        <p><strong>Markdown 正文与 callout</strong>：由 Obsidian 渲染引擎输出；<code>[!user]</code>、<code>[!think]</code>、<code>[!search]</code> 等折叠 callout 即移动端聊天气泡观感。</p>
+                        <p><strong>Markdown 正文与 callout</strong>：由 Obsidian 渲染引擎输出；<code>[!user]</code> 显式标题渲染为「你」，<code>[!think]</code>、<code>[!search]</code> 折叠 callout 即移动端聊天气泡观感。</p>
+                    </div>
+                    <div class="annotation-item">
+                        <span class="badge native">原生</span>
+                        <p><strong>底部工具栏</strong>：Obsidian 移动端原生底部栏（高约 90px）。注入 FAB 与输入坞的 bottom offset 必须避让此栏，收起态 FAB bottom = 108px，展开态坞 bottom = 0（覆盖在原生栏之上）。</p>
                     </div>
                     <div class="annotation-item">
                         <span class="badge injected">注入</span>
@@ -785,18 +920,22 @@
             document.getElementById('annotation-content').innerHTML,
             // Screen 2
             `<div class="annotation-group">
-                <h3>屏2：输入坞展开态</h3>
+                <h3>屏2：会话笔记上的输入坞展开态</h3>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
                     <p><strong>输入坞整体</strong>：固定底部浮层，覆盖在 Obsidian 阅读视图之上，不破坏原页面滚动。</p>
                 </div>
                 <div class="annotation-item">
-                    <span class="badge injected">注入</span>
-                    <p><strong>上下文 chip "📎《当前笔记名》"</strong>：默认开启（当前阅读笔记作为首条 user 消息前缀）；点击 chip 可关闭。关闭后本次发送不再携带全文。</p>
+                    <span class="badge interaction">交互</span>
+                    <p><strong>发送写到哪里（B1 分支语义）</strong>：当前打开的是<strong>会话笔记</strong> → 发送直接 append <code>&gt; [!user]</code> 到当前 md 并流式续写；输入框保持聚焦以便多轮连续提问。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
-                    <p><strong>Model 开关</strong>：切换 default / expert；与 frontmatter 的 <code>model</code> 字段同步。</p>
+                    <p><strong>上下文 chip（B2 规则）</strong>：查看会话笔记时，chip 不出现或以禁用态显示「上下文：本会话」，避免把整个会话当作自己的上下文。此屏采用禁用态。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>Model 分段控件</strong>：default / expert 两态点选，取代歧义 pill。与 frontmatter 的 <code>model</code> 字段同步。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
@@ -805,10 +944,6 @@
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
                     <p><strong>+ 新会话</strong>：在 <code>AI 会话/</code> 下创建新 md（frontmatter + 空正文）并打开。</p>
-                </div>
-                <div class="annotation-item">
-                    <span class="badge interaction">交互</span>
-                    <p><strong>发送</strong>：append <code>&gt; [!user]</code> 到当前 md → 调用引擎流式写入。输入框保持聚焦以便多轮连续提问。</p>
                 </div>
             </div>`,
             // Screen 3
@@ -828,6 +963,10 @@
                 </div>
                 <div class="annotation-item">
                     <span class="badge interaction">交互</span>
+                    <p><strong>坞状态机（D4）</strong>：展开坞 → 点击发送 → 坞自动收起为生成条；turn 完成或中断 → 恢复为展开坞，输入框自动聚焦。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
                     <p><strong>点击停止 / 系统返回键</strong>：触发引擎 <code>abort()</code>；下次打开同一会话时由 T2 解析器识别未完成轮次，提供 resume。</p>
                 </div>
             </div>`,
@@ -843,12 +982,36 @@
                     <p><strong>🔍 搜索 / 快速切换器</strong>：用户用 Obsidian 全局搜索或快速切换器定位会话；会话即笔记，自然可被双链、反链、图谱索引。</p>
                 </div>
                 <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>「归档」文件夹（D3）</strong>：纯手动归档容器。用户长按会话 md → Obsidian 原生菜单 → 移动到「归档」。无自动归档逻辑，W4 不实现任何自动归档。</p>
+                </div>
+                <div class="annotation-item">
                     <span class="badge interaction">交互</span>
                     <p><strong>点击 md</strong> → 进入阅读视图 → 自动注入输入坞；长按 md → Obsidian 原生菜单（重命名、移动、删除）。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge interaction">交互</span>
                     <p><strong>新建会话入口</strong>：仅存在于输入坞展开态的"+ 新会话"；不在文件列表加按钮，避免与 Obsidian 原生"新建笔记"重复。</p>
+                </div>
+            </div>`,
+            // Screen 5
+            `<div class="annotation-group">
+                <h3>屏5：普通笔记上的输入坞展开态（B1/B2 关键分支）</h3>
+                <div class="annotation-item">
+                    <span class="badge native">原生</span>
+                    <p><strong>普通笔记阅读视图</strong>：用户正在看《旅行预算表.md》，不是 <code>AI 会话/</code> 下的文件。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>上下文 chip</strong>：查看普通笔记时显示「📎《旅行预算表》」，默认开启；关闭后本次发送不再携带全文。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>发送写到哪里（B1 分支语义）</strong>：当前打开的是<strong>普通笔记</strong> → 发送不会写进当前 md，而是在 <code>AI 会话/</code> 下<strong>自动创建新会话 md</strong>，把 chip 内容作为首条 user 消息前缀，并<strong>跳转到该会话笔记</strong>继续流式生成。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge interaction">交互</span>
+                    <p><strong>+ 新会话</strong>：在普通笔记上点击也走同样逻辑：创建会话 md、chip 内容作前缀、跳转。</p>
                 </div>
             </div>`
         ];
