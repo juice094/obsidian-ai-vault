@@ -431,10 +431,28 @@ var SessionEngine = class {
       bodyBlocks: [],
       aiBeginId: turn.id
     };
-    let bodyText = "";
-    let thinkText = "";
+    let bodyBuffer = "";
+    let thinkBuffer = "";
     let searchResults = null;
     let usage = null;
+    let lastFlushAt = performance.now();
+    const FLUSH_INTERVAL_MS = 150;
+    const FLUSH_SIZE_CHARS = 4096;
+    const flush = async (force = false) => {
+      const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+      if (!force && bufferedChars === 0) return;
+      turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+      turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+      await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
+      lastFlushAt = performance.now();
+    };
+    const maybeFlush = async () => {
+      const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+      const elapsed = performance.now() - lastFlushAt;
+      if (elapsed >= FLUSH_INTERVAL_MS || bufferedChars >= FLUSH_SIZE_CHARS) {
+        await flush();
+      }
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -445,23 +463,26 @@ var SessionEngine = class {
         const result = this._processSseLine(line);
         if (!result) continue;
         if (result.type === "content") {
-          bodyText += result.delta;
-          turnState.bodyBlocks = bodyText ? bodyText.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+          bodyBuffer += result.delta;
+          turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
           this.onEvent({ type: "content-delta", delta: result.delta });
+          await maybeFlush();
         } else if (result.type === "reasoning") {
-          thinkText += result.delta;
-          turnState.thinks = thinkText ? [{ elapsedSecs: null, text: thinkText }] : [];
+          thinkBuffer += result.delta;
+          turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
           this.onEvent({ type: "think-delta", delta: result.delta });
+          await maybeFlush();
         } else if (result.type === "search_results") {
           searchResults = result.results;
           turnState.searches = [this._toSearchEntry(result.results)];
           this.onEvent({ type: "search-done", results: result.results.results });
+          await flush(true);
         } else if (result.type === "finish") {
           usage = result.usage;
         }
-        await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
       }
     }
+    await flush(true);
     const finalTurn = {
       ...turnState,
       meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),
