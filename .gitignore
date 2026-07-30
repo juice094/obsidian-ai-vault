@@ -1,3 +1,4 @@
 node_modules/
 *.log
 main.js.map
+test-vault-t4/
