@@ -1,0 +1,154 @@
+{
+  "url": "ws://127.0.0.1:18792/ws",
+  "started": 1785393723352,
+  "finished": 1785393724174,
+  "finalState": "done",
+  "eventCount": 11,
+  "events": [
+    {
+      "t": 1785393723352,
+      "kind": "ws_open",
+      "payload": {
+        "url": "ws://127.0.0.1:18792/ws"
+      }
+    },
+    {
+      "t": 1785393723353,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "event",
+        "event": "connect.challenge",
+        "payload": {
+          "nonce": "60803dc2-0213-473f-ad11-9e2797fa8742",
+          "ts": 1785393723349
+        }
+      }
+    },
+    {
+      "t": 1785393723353,
+      "kind": ">>_sent",
+      "payload": {
+        "type": "req",
+        "method": "connect",
+        "id": "fc6d0c2a-a952-4e87-8290-6ed633bf58ed"
+      }
+    },
+    {
+      "t": 1785393723354,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "res",
+        "id": "fc6d0c2a-a952-4e87-8290-6ed633bf58ed",
+        "ok": true,
+        "payload": {
+          "type": "hello-ok",
+          "protocol": 3,
+          "server": {
+            "version": "mock",
+            "connId": "c1"
+          },
+          "features": {
+            "methods": [
+              "chat.send",
+              "chat.history",
+              "sessions.list"
+            ],
+            "events": [
+              "chat"
+            ]
+          },
+          "policy": {
+            "maxPayload": 26214400,
+            "maxBufferedBytes": 52428800,
+            "tickIntervalMs": 30000
+          }
+        }
+      }
+    },
+    {
+      "t": 1785393723563,
+      "kind": ">>_sent",
+      "payload": {
+        "type": "req",
+        "method": "chat.send",
+        "id": "cdb0f935-0bd4-4bee-8b2e-6f8051713c6b"
+      }
+    },
+    {
+      "t": 1785393723564,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "res",
+        "id": "cdb0f935-0bd4-4bee-8b2e-6f8051713c6b",
+        "ok": true,
+        "payload": {
+          "message": {
+            "role": "assistant",
+            "content": "Mock reply"
+          }
+        }
+      }
+    },
+    {
+      "t": 1785393723672,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "event",
+        "event": "chat",
+        "payload": {
+          "message": {
+            "role": "assistant",
+            "content": "Hello"
+          }
+        }
+      }
+    },
+    {
+      "t": 1785393723764,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "event",
+        "event": "chat",
+        "payload": {
+          "message": {
+            "role": "assistant",
+            "content": " from"
+          }
+        }
+      }
+    },
+    {
+      "t": 1785393723874,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "event",
+        "event": "chat",
+        "payload": {
+          "message": {
+            "role": "assistant",
+            "content": " spike."
+          }
+        }
+      }
+    },
+    {
+      "t": 1785393723967,
+      "kind": "<<_recv",
+      "payload": {
+        "type": "event",
+        "event": "chat",
+        "payload": {
+          "done": true
+        }
+      }
+    },
+    {
+      "t": 1785393724174,
+      "kind": "ws_close",
+      "payload": {
+        "code": 1000,
+        "reason": "done"
+      }
+    }
+  ]
+}
