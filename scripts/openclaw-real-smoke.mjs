@@ -2,24 +2,61 @@
 // 凭证从 claw-cred.txt 读取，绝不写进代码或日志。
 // 用法：node scripts/openclaw-real-smoke.mjs [simple]
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout } from 'node:timers/promises';
 import { OpenClawProvider } from '../src/openclaw-provider.js';
 import { SessionEngine } from '../src/engine.js';
 
-// 拦截并打印 provider 发出的 WebSocket 帧，用于调试协议方言（token 已打码）。
+const capturedFrames = [];
+
+function maskToken(obj) {
+  const masked = JSON.parse(JSON.stringify(obj));
+  if (masked.params?.auth?.token) masked.params.auth.token = '***';
+  if (masked.token) masked.token = '***';
+  for (const key of Object.keys(masked)) {
+    if (/token|secret|key|password|credential/i.test(key) && typeof masked[key] === 'string') {
+      masked[key] = '***';
+    }
+  }
+  return masked;
+}
+
+function logFrame(direction, raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    const masked = maskToken(parsed);
+    capturedFrames.push({ direction, ts: Date.now(), frame: masked });
+    console.log(`[ws.${direction}]`, JSON.stringify(masked).slice(0, 800));
+  } catch {
+    capturedFrames.push({ direction, ts: Date.now(), raw: String(raw).slice(0, 400) });
+    console.log(`[ws.${direction}]`, String(raw).slice(0, 800));
+  }
+}
+
+function saveFrames(endpoint) {
+  const outPath = new URL('../docs/openclaw-real-smoke-frames.json', import.meta.url);
+  const data = { endpoint, capturedAt: new Date().toISOString(), frames: capturedFrames };
+  writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
+  console.log('\nframes saved to docs/openclaw-real-smoke-frames.json');
+}
+
+// 拦截并打印 provider 发出/收到的 WebSocket 帧，用于调试协议方言（token 已打码）。
 const origSend = WebSocket.prototype.send;
 WebSocket.prototype.send = function (data) {
-  try {
-    const parsed = JSON.parse(data);
-    const masked = JSON.parse(JSON.stringify(parsed));
-    if (masked.params?.auth?.token) masked.params.auth.token = '***';
-    if (masked.token) masked.token = '***';
-    console.log('[ws.send]', JSON.stringify(masked));
-  } catch {
-    console.log('[ws.send]', String(data).slice(0, 200));
-  }
+  logFrame('send', data);
   return origSend.call(this, data);
+};
+
+const origAddEventListener = WebSocket.prototype.addEventListener;
+WebSocket.prototype.addEventListener = function (type, listener, options) {
+  if (type === 'message' && typeof listener === 'function') {
+    const wrapped = (ev) => {
+      logFrame('recv', ev.data);
+      return listener(ev);
+    };
+    return origAddEventListener.call(this, type, wrapped, options);
+  }
+  return origAddEventListener.call(this, type, listener, options);
 };
 
 const credPath = new URL('../claw-cred.txt', import.meta.url);
@@ -139,3 +176,4 @@ if (result.ok) {
 } else {
   console.log('\n--- provider 未通过，跳过 engine 集成 ---');
 }
+saveFrames(endpoint);
