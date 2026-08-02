@@ -51,28 +51,3 @@
 
 新增任务包 **W9：OpenClawProvider 阶段 1（共享核心）**，委托词待用户排期后另发；
 与 W4/W5/W6 无依赖，可并行。阶段 2（配对 + 工具/审批 UI）在 W9 验收后另行立项。
-
----
-
-## 修订 1（2026-08-02）：阶段 1 引入最小配对引导脚本
-
-**背景**：R4 真实冒烟（`9cf14eb`）证实真实 OpenClaw gateway（Gray-Cloud，v2026.4.14）
-对 shared-secret token 在 **WebSocket 面不授予任何 operator scope**（hello-ok 无
-`auth.scopes` 字段；其安全文档明确完整 scope 仅限 OpenAI 兼容 HTTP 面）。
-方案 A（给 token 加 scope）在服务端架构上不存在，原「阶段 1 不做配对」裁决须修订。
-
-**裁决**：批准最小配对，但严格约束为**一次性引导脚本**，不改变运行时架构：
-
-1. 配对在桌面 Node 脚本（`scripts/openclaw-pair.mjs`）里完成，**不进 WebView、
-   不进引擎/provider 运行时代码**；
-2. 产物 device operator token 落盘 `claw-cred.txt`（gitignored），与 admin token
-   一样作为配置注入；provider 只需支持配置化 `clientId`（已有），运行时路径不变；
-3. 若真实 gateway 的 `pair.request` 要求客户端 Ed25519 签名，用 Node `crypto`
-   在脚本侧解决——W7 冻结的原始意图是「WebView 里不碰 Ed25519」，脚本侧不受限；
-4. 审批环节首选 gateway dashboard 人工批准；`node.pair.approve` 若在 tools
-   白名单内（此前白名单仅 `sessions_spawn`）才允许脚本自动批准；
-5. 配对流程与参考时序以 Gray-Cloud 给的 6 步为准，但字段细节以实测帧为准——
-   脚本每步抓帧存证，流程偏差大则停下回报。
-
-**不撤销的部分**：md 格式冻结不变；工具/审批 UI 仍属阶段 2；方案 C（内嵌 Rust
-运行时）仍否决。
