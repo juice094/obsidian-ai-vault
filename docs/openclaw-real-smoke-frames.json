@@ -1,25 +1,27 @@
 {
   "endpoint": "ws://100.69.11.71:18789",
-  "capturedAt": "2026-08-02T11:59:13.166Z",
+  "capturedAt": "2026-08-02T12:12:23.201Z",
+  "step": "pair-request-failed",
+  "deviceId": "obsidian-ai-vault-0853b651-2208-4eb7-baf8-8882cf4dea80",
   "frames": [
     {
       "direction": "recv",
-      "ts": 1785671952219,
+      "ts": 1785672742538,
       "frame": {
         "type": "event",
         "event": "connect.challenge",
         "payload": {
-          "nonce": "1a4f048c-0da6-4af9-965f-5ae29fd03925",
-          "ts": 1785671952797
+          "nonce": "61abd362-a272-4d6d-94d3-34a16417c729",
+          "ts": 1785672743127
         }
       }
     },
     {
       "direction": "send",
-      "ts": 1785671952219,
+      "ts": 1785672742641,
       "frame": {
         "type": "req",
-        "id": "62c93565-c8e9-479f-89ce-b39e99cb04c9",
+        "id": "1-1785672742641",
         "method": "connect",
         "params": {
           "minProtocol": 3,
@@ -33,7 +35,8 @@
           "role": "operator",
           "scopes": [
             "operator.read",
-            "operator.write"
+            "operator.write",
+            "operator.pairing"
           ],
           "auth": {
             "token": "***"
@@ -44,17 +47,17 @@
     },
     {
       "direction": "recv",
-      "ts": 1785671952829,
+      "ts": 1785672742938,
       "frame": {
         "type": "res",
-        "id": "62c93565-c8e9-479f-89ce-b39e99cb04c9",
+        "id": "1-1785672742641",
         "ok": true,
         "payload": {
           "type": "hello-ok",
           "protocol": 3,
           "server": {
             "version": "2026.4.14",
-            "connId": "fcbc8ef8-e577-4fb4-b327-208f438100f4"
+            "connId": "a553aa32-a3c9-4ac3-86d8-2586b3f916e3"
           },
           "features": {
             "methods": [
@@ -246,12 +249,12 @@
                 "mode": "gateway",
                 "reason": "self",
                 "text": "Gateway: VM-8-134-ubuntu (10.209.8.134) · app 2026.4.14 · mode gateway · reason self",
-                "ts": 1785671953251
+                "ts": 1785672743508
               }
             ],
             "health": {
               "ok": true,
-              "ts": 1785671946962,
+              "ts": 1785672726991,
               "durationMs": 0,
               "channels": {
                 "kimi-claw": {
@@ -261,7 +264,7 @@
                     "ok": true,
                     "state": "running"
                   },
-                  "lastProbeAt": 1785671946962,
+                  "lastProbeAt": 1785672726991,
                   "accounts": {
                     "main": {
                       "accountId": "main",
@@ -270,7 +273,7 @@
                         "ok": true,
                         "state": "running"
                       },
-                      "lastProbeAt": 1785671946962
+                      "lastProbeAt": 1785672726991
                     }
                   }
                 }
@@ -301,23 +304,23 @@
                     "recent": [
                       {
                         "key": "agent:main:main",
-                        "updatedAt": 1785671892350,
-                        "age": 54602
+                        "updatedAt": 1785671969615,
+                        "age": 757343
                       },
                       {
                         "key": "agent:main:kimi-claw:room:19fc0a51-3842-8811-8000-0a09c8edac9a",
                         "updatedAt": 1785647085017,
-                        "age": 24861935
+                        "age": 25641941
                       },
                       {
                         "key": "agent:main:kimi-claw:room:19fc0a04-6452-8d9c-8000-0c0958af6ad6",
                         "updatedAt": 1785643197271,
-                        "age": 28749681
+                        "age": 29529687
                       },
                       {
                         "key": "agent:main:kimi-claw:channel:19e98c6a-90c2-8998-8000-090992c9fa88",
                         "updatedAt": 1780763328967,
-                        "age": 4908617985
+                        "age": 4909397991
                       }
                     ]
                   }
@@ -341,27 +344,27 @@
                       {
                         "key": "agent:device:subagent:8f88ed9c-d970-43f8-8b13-49d2e6e6c225",
                         "updatedAt": 1785669335927,
-                        "age": 2611035
+                        "age": 3391064
                       },
                       {
                         "key": "agent:device:subagent:52149416-aae3-4af9-bfa1-8686e5b1e1bb",
                         "updatedAt": 1785669253155,
-                        "age": 2693807
+                        "age": 3473836
                       },
                       {
                         "key": "agent:device:subagent:fcb7135a-f76d-43f2-ae8f-9429afa24c5b",
                         "updatedAt": 1785668275637,
-                        "age": 3671325
+                        "age": 4451354
                       },
                       {
                         "key": "agent:device:subagent:e8b5dbdb-fac3-44ea-a78d-bace1ffb32f5",
                         "updatedAt": 1785668266103,
-                        "age": 3680859
+                        "age": 4460888
                       },
                       {
                         "key": "agent:device:subagent:8faa43b0-3978-44c5-83d4-4d05667674ee",
                         "updatedAt": 1785667923033,
-                        "age": 4023929
+                        "age": 4803958
                       }
                     ]
                   }
@@ -373,32 +376,32 @@
                 "recent": [
                   {
                     "key": "agent:main:main",
-                    "updatedAt": 1785671892350,
-                    "age": 54602
+                    "updatedAt": 1785671969615,
+                    "age": 757343
                   },
                   {
                     "key": "agent:main:kimi-claw:room:19fc0a51-3842-8811-8000-0a09c8edac9a",
                     "updatedAt": 1785647085017,
-                    "age": 24861935
+                    "age": 25641941
                   },
                   {
                     "key": "agent:main:kimi-claw:room:19fc0a04-6452-8d9c-8000-0c0958af6ad6",
                     "updatedAt": 1785643197271,
-                    "age": 28749681
+                    "age": 29529687
                   },
                   {
                     "key": "agent:main:kimi-claw:channel:19e98c6a-90c2-8998-8000-090992c9fa88",
                     "updatedAt": 1780763328967,
-                    "age": 4908617985
+                    "age": 4909397991
                   }
                 ]
               }
             },
             "stateVersion": {
               "presence": 55,
-              "health": 111
+              "health": 126
             },
-            "uptimeMs": 3920959,
+            "uptimeMs": 4711216,
             "sessionDefaults": {
               "defaultAgentId": "main",
               "mainKey": "main",
@@ -416,33 +419,43 @@
     },
     {
       "direction": "send",
-      "ts": 1785671952830,
+      "ts": 1785672742942,
       "frame": {
         "type": "req",
-        "id": "5818ddde-265d-40cd-85e2-abd5bf3b426d",
-        "method": "chat.send",
+        "id": "2-1785672742942",
+        "method": "node.pair.request",
         "params": {
-          "sessionKey": "agent:main:main",
-          "message": [
-            {
-              "type": "text",
-              "text": "你好，这是一条冒烟测试消息。"
-            }
-          ],
-          "stream": true
+          "device": {
+            "id": "obsidian-ai-vault-0853b651-2208-4eb7-baf8-8882cf4dea80",
+            "publicKey": "C65Jh6YXwgZKRQHm5bcqejmx2NV8CTPzTYqrUrR8SXw=",
+            "signature": "PnmB37ir5b8wVgOFtlqpX/PBjRkyQSCoheunW6deFwZrmmyuWm9LfGOPOpVKvRJl3jCHZgZZzpLcHE2QAwscDw==",
+            "nonce": "61abd362-a272-4d6d-94d3-34a16417c729",
+            "signedAt": "2026-08-02T12:12:22.941Z"
+          },
+          "client": {
+            "id": "cli",
+            "version": "1.0.0",
+            "platform": "linux",
+            "mode": "cli"
+          },
+          "role": "operator",
+          "scopes": [
+            "operator.read",
+            "operator.write"
+          ]
         }
       }
     },
     {
       "direction": "recv",
-      "ts": 1785671952837,
+      "ts": 1785672743082,
       "frame": {
         "type": "event",
         "event": "health",
         "payload": {
           "ok": true,
-          "ts": 1785671953265,
-          "durationMs": 1,
+          "ts": 1785672743529,
+          "durationMs": 0,
           "channels": {
             "kimi-claw": {
               "accountId": "main",
@@ -451,7 +464,7 @@
                 "ok": true,
                 "state": "running"
               },
-              "lastProbeAt": 1785671953265,
+              "lastProbeAt": 1785672743529,
               "accounts": {
                 "main": {
                   "accountId": "main",
@@ -460,7 +473,7 @@
                     "ok": true,
                     "state": "running"
                   },
-                  "lastProbeAt": 1785671953265
+                  "lastProbeAt": 1785672743529
                 }
               }
             }
@@ -491,23 +504,23 @@
                 "recent": [
                   {
                     "key": "agent:main:main",
-                    "updatedAt": 1785671892350,
-                    "age": 60905
+                    "updatedAt": 1785671969615,
+                    "age": 773904
                   },
                   {
                     "key": "agent:main:kimi-claw:room:19fc0a51-3842-8811-8000-0a09c8edac9a",
                     "updatedAt": 1785647085017,
-                    "age": 24868238
+                    "age": 25658502
                   },
                   {
                     "key": "agent:main:kimi-claw:room:19fc0a04-6452-8d9c-8000-0c0958af6ad6",
                     "updatedAt": 1785643197271,
-                    "age": 28755984
+                    "age": 29546248
                   },
                   {
                     "key": "agent:main:kimi-claw:channel:19e98c6a-90c2-8998-8000-090992c9fa88",
                     "updatedAt": 1780763328967,
-                    "age": 4908624288
+                    "age": 4909414552
                   }
                 ]
               }
@@ -531,27 +544,27 @@
                   {
                     "key": "agent:device:subagent:8f88ed9c-d970-43f8-8b13-49d2e6e6c225",
                     "updatedAt": 1785669335927,
-                    "age": 2617337
+                    "age": 3407602
                   },
                   {
                     "key": "agent:device:subagent:52149416-aae3-4af9-bfa1-8686e5b1e1bb",
                     "updatedAt": 1785669253155,
-                    "age": 2700109
+                    "age": 3490374
                   },
                   {
                     "key": "agent:device:subagent:fcb7135a-f76d-43f2-ae8f-9429afa24c5b",
                     "updatedAt": 1785668275637,
-                    "age": 3677627
+                    "age": 4467892
                   },
                   {
                     "key": "agent:device:subagent:e8b5dbdb-fac3-44ea-a78d-bace1ffb32f5",
                     "updatedAt": 1785668266103,
-                    "age": 3687161
+                    "age": 4477426
                   },
                   {
                     "key": "agent:device:subagent:8faa43b0-3978-44c5-83d4-4d05667674ee",
                     "updatedAt": 1785667923033,
-                    "age": 4030231
+                    "age": 4820496
                   }
                 ]
               }
@@ -563,264 +576,44 @@
             "recent": [
               {
                 "key": "agent:main:main",
-                "updatedAt": 1785671892350,
-                "age": 60905
+                "updatedAt": 1785671969615,
+                "age": 773904
               },
               {
                 "key": "agent:main:kimi-claw:room:19fc0a51-3842-8811-8000-0a09c8edac9a",
                 "updatedAt": 1785647085017,
-                "age": 24868238
+                "age": 25658502
               },
               {
                 "key": "agent:main:kimi-claw:room:19fc0a04-6452-8d9c-8000-0c0958af6ad6",
                 "updatedAt": 1785643197271,
-                "age": 28755984
+                "age": 29546248
               },
               {
                 "key": "agent:main:kimi-claw:channel:19e98c6a-90c2-8998-8000-090992c9fa88",
                 "updatedAt": 1780763328967,
-                "age": 4908624288
+                "age": 4909414552
               }
             ]
           }
         },
-        "seq": 4191,
+        "seq": 4239,
         "stateVersion": {
           "presence": 55,
-          "health": 112
+          "health": 127
         }
       }
     },
     {
       "direction": "recv",
-      "ts": 1785671953101,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对",
-            "delta": " 对"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 655,
-          "ts": 1785671953298
-        },
-        "seq": 4192
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953102,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret",
-            "delta": " shared-secret"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 656,
-          "ts": 1785671953334
-        },
-        "seq": 4193
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953109,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token",
-            "delta": " token"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 657,
-          "ts": 1785671953335
-        },
-        "seq": 4194
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953110,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope",
-            "delta": " 的 scope"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 658,
-          "ts": 1785671953383
-        },
-        "seq": 4195
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953110,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制",
-            "delta": " 授予机制"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 659,
-          "ts": 1785671953431
-        },
-        "seq": 4196
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953110,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：",
-            "delta": "是："
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 660,
-          "ts": 1785671953477
-        },
-        "seq": 4197
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953163,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：不",
-            "delta": "不"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 661,
-          "ts": 1785671953533
-        },
-        "seq": 4198
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953163,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：不授予。**",
-            "delta": "授予。**"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 662,
-          "ts": 1785671953563
-        },
-        "seq": 4199
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953163,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：不授予。** connect",
-            "delta": " connect"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 663,
-          "ts": 1785671953564
-        },
-        "seq": 4200
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953163,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：不授予。** connect 请求",
-            "delta": " 请求"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 664,
-          "ts": 1785671953601
-        },
-        "seq": 4201
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953166,
-      "frame": {
-        "type": "event",
-        "event": "agent",
-        "payload": {
-          "runId": "570c00f7-3e64-4b73-ac1e-84929682a99e",
-          "stream": "assistant",
-          "data": {
-            "text": "**铁证如山。**\n\n```\nhello-ok.auth.scopes → NOT PRESENT\nhello-ok.auth.role   → NOT PRESENT\nchat.send            → missing scope: operator.write\n```\n\nshared-secret token 模式只做**认证**，不授予**任何 operator scope**。`\"restores the normal full operator defaults\"` 说的是 HTTP API 路径，WebSocket 协议不同。\n\n现在两个分支都很明确：\n\n### 分支 1（hello-ok 里没有 `operator.write`）← 当前状况\n\n**Gateway 对 shared-secret token 的 scope 授予机制是：不授予。** connect 请求里声明",
-            "delta": "里声明"
-          },
-          "sessionKey": "agent:main:main",
-          "seq": 665,
-          "ts": 1785671953648
-        },
-        "seq": 4202
-      }
-    },
-    {
-      "direction": "recv",
-      "ts": 1785671953166,
+      "ts": 1785672743200,
       "frame": {
         "type": "res",
-        "id": "5818ddde-265d-40cd-85e2-abd5bf3b426d",
+        "id": "2-1785672742942",
         "ok": false,
         "error": {
           "code": "INVALID_REQUEST",
-          "message": "missing scope: operator.write"
+          "message": "missing scope: operator.pairing"
         }
       }
     }

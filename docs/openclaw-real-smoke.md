@@ -196,22 +196,121 @@ npm test
 
 结果：22/22 通过。
 
+## R4b 最小设备配对尝试
+
+> 任务来源：`obsidian-sync-android-bridge/docs/PLAN-round2-handover.md` R4b 节。  
+> 目标：admin token 走 `node.pair.request` → 批准 → 拿到 device operator token → 以 `gateway-client` 重连 → 验证 hello-ok 带 `auth.scopes` → 跑通一轮真实流式 chat。
+
+### 已完成的代码准备
+
+- `src/openclaw-provider.js` 新增 `event: "agent"` 映射：
+  - `payload.stream === 'reasoning'/'think'` → `{type:'reasoning', delta:data.delta|data.text}`；
+  - 其他 `agent` 事件 → `{type:'content', delta:data.delta|data.text}`；
+  - `payload.done === true || payload.finished === true` → `{type:'finish'}`。
+- `scripts/openclaw-pair.mjs` 实现完整配对脚本：
+  - 使用 Node `webcrypto.subtle` 生成 Ed25519 密钥对；
+  - 按决策文档签名载荷格式 `v3|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily` 对 `node.pair.request` 签名；
+  - 自动检测 `node.pair.approve` 是否在 tools 白名单，在白名单内则自动批准；否则等待 dashboard 人工批准；
+  - 轮询 `node.pair.list` 提取 device operator token；
+  - 用 device token 以 `client.id="gateway-client"` 重连并尝试 `chat.send`。
+
+### 执行结果
+
+**配对请求被拒绝，未拿到 device token，R4b 未完成。**
+
+1. admin token 连接（`client.id="cli"`）成功，hello-ok 仍无 `auth.scopes`；
+2. `connect` 请求 scopes 包含 `operator.read` / `operator.write` / `operator.pairing`；
+3. `node.pair.request` 返回：
+   ```json
+   { "type": "res", "ok": false, "error": { "code": "INVALID_REQUEST", "message": "missing scope: operator.pairing" } }
+   ```
+4. 额外验证 `device.pair.request`（非任务要求，仅作对照），返回：
+   ```json
+   { "type": "res", "ok": false, "error": { "code": "INVALID_REQUEST", "message": "missing scope: operator.admin" } }
+   ```
+
+### R4b 关键帧摘录
+
+admin connect 请求（token 已打码）：
+
+```json
+{
+  "type": "req",
+  "method": "connect",
+  "params": {
+    "minProtocol": 3,
+    "maxProtocol": 3,
+    "client": { "id": "cli", "version": "1.0.0", "platform": "linux", "mode": "cli" },
+    "role": "operator",
+    "scopes": ["operator.read", "operator.write", "operator.pairing"],
+    "auth": { "token": "***" },
+    "caps": []
+  }
+}
+```
+
+`node.pair.request` 请求（Ed25519 签名，token 已打码）：
+
+```json
+{
+  "type": "req",
+  "method": "node.pair.request",
+  "params": {
+    "device": {
+      "id": "obsidian-ai-vault-0853b651-2208-4eb7-baf8-8882cf4dea80",
+      "publicKey": "C65Jh6YXwgZKRQHm5bcqejmx2NV8CTPzTYqrUrR8SXw=",
+      "signature": "PnmB37ir5b8wVgOFtlqpX/PBjRkyQSCoheunW6deFwZrmmyuWm9LfGOPOpVKvRJl3jCHZgZZzpLcHE2QAwscDw==",
+      "nonce": "61abd362-a272-4d6d-94d3-34a16417c729",
+      "signedAt": "2026-08-02T12:12:22.941Z"
+    },
+    "client": { "id": "cli", "version": "1.0.0", "platform": "linux", "mode": "cli" },
+    "role": "operator",
+    "scopes": ["operator.read", "operator.write"]
+  }
+}
+```
+
+`node.pair.request` 响应：
+
+```json
+{
+  "type": "res",
+  "ok": false,
+  "error": { "code": "INVALID_REQUEST", "message": "missing scope: operator.pairing" }
+}
+```
+
+完整帧记录见 `docs/openclaw-real-smoke-frames.json`（已更新为 R4b 失败时的最新一次捕获）。
+
+### R4b 偏差分析
+
+规格假设 admin token 在 WebSocket 面至少能执行 `node.pair.request`。实测该 gateway 对 shared-secret token 在 WebSocket 面**不授予任何 operator scope**（与 R4 结论一致），因此：
+
+- 请求 `operator.pairing` 不会被服务端采纳；
+- `node.pair.request` / `device.pair.request` 均因缺少 scope 被拒绝；
+- 拿不到 device operator token，后续重连与 chat 无法继续。
+
+这与 `docs/openclaw-decision-review.md` 修订 1 的预期（shared-secret token 可作为 admin token 完成一次性配对）不符，偏差较大。
+
 ## 单轮 chat 事件流
 
 **未产生 provider 可识别的事件流。** `chat.send` 返回 `missing scope: operator.write`，未进入 `ChatChunk` / `ReasoningChunk` / `Done`，无 vault md 落盘。
 
 但服务端确实通过 `agent` 事件向 `agent:main:main` session 输出了 assistant 文本（解释权限问题）。
 
-## 是否通过 R4
+## 是否通过 R4 / R4b
 
-**未通过。**
+**均未通过。**
 
-阻塞原因：connect 握手成功，hello-ok 未回显 granted scopes；`chat.send` 因服务端未授予 `operator.write` 返回 `INVALID_REQUEST`。客户端请求字段已验证符合 clarity 方言，问题在服务端的 token scope 策略。
+- R4 阻塞：`chat.send` 因缺少 `operator.write` scope 被拒绝；
+- R4b 阻塞：`node.pair.request` 因缺少 `operator.pairing` scope 被拒绝，无法获取 device operator token。
+
+两者根因相同：Gray-Cloud gateway 对 shared-secret admin token 在 WebSocket 面**不授予任何 operator scope**。
 
 ## 下一步建议
 
-1. 在服务端确认 shared-secret token 是否本应授予 `operator.write`；
-2. 若应授予，检查服务端 scope 授予代码路径（shared-secret 鉴权后是否遗漏 scope 注入）；
-3. 若不应授予，确认 WebSocket 聊天应使用哪种认证/授权方式（例如节点配对、设备 token、OAuth 等）；
-4. 如决定支持 `agent` 事件作为流式响应，需在 `src/openclaw-provider.js` 的 `_mapEvent` 中增加 `event === 'agent'` 的映射（取 `payload.data.delta` 或 `payload.data.text`）；
-5. 权限问题解决后重跑 `node scripts/openclaw-real-smoke.mjs ws://100.69.11.71:18789`，验证完整 `connect → chat.send → 流式事件 → SessionEngine md 落盘` 链路。
+1. **服务端确认**：shared-secret token 在 WebSocket 面是否本应被授予 operator scopes；
+2. **HTTP 面替代**：若 WebSocket 面确实不授 scope，是否应通过 HTTP API（决策文档提及 HTTP 面有完整 scope）完成配对，再拿 device token 回 WebSocket 聊天；
+3. **凭证升级**：是否需提供另一种 admin token（已带 `operator.admin`/`operator.pairing`）或 OAuth/节点凭证；
+4. **agent 事件**：权限解决后，确认 `agent` 事件是否就是真实 chat 的流式响应格式，并在 provider 中保留已新增的映射；
+5. 拿到有效 device token 后，重跑 `node scripts/openclaw-pair.mjs ws://100.69.11.71:18789` 完成 R4b 验收。

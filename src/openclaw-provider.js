@@ -263,6 +263,22 @@ export class OpenClawProvider {
       if (payload.message?.content) return { type: 'reasoning', delta: payload.message.content };
     }
 
+    // 真实 OpenClaw gateway 用 agent 事件推送 assistant 流式文本。
+    if (event === 'agent') {
+      const data = payload.data;
+      if (data) {
+        if (payload.stream === 'reasoning' || payload.stream === 'think') {
+          if (data.delta) return { type: 'reasoning', delta: data.delta };
+          if (data.text) return { type: 'reasoning', delta: data.text };
+        }
+        if (data.delta) return { type: 'content', delta: data.delta };
+        if (data.text) return { type: 'content', delta: data.text };
+      }
+      if (payload.done === true || payload.finished === true) {
+        return { type: 'finish' };
+      }
+    }
+
     if (event === 'Done' || payload.done === true) {
       return { type: 'finish' };
     }
