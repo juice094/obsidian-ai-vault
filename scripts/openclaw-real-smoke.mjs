@@ -7,6 +7,21 @@ import { setTimeout } from 'node:timers/promises';
 import { OpenClawProvider } from '../src/openclaw-provider.js';
 import { SessionEngine } from '../src/engine.js';
 
+// 拦截并打印 provider 发出的 WebSocket 帧，用于调试协议方言（token 已打码）。
+const origSend = WebSocket.prototype.send;
+WebSocket.prototype.send = function (data) {
+  try {
+    const parsed = JSON.parse(data);
+    const masked = JSON.parse(JSON.stringify(parsed));
+    if (masked.params?.auth?.token) masked.params.auth.token = '***';
+    if (masked.token) masked.token = '***';
+    console.log('[ws.send]', JSON.stringify(masked));
+  } catch {
+    console.log('[ws.send]', String(data).slice(0, 200));
+  }
+  return origSend.call(this, data);
+};
+
 const credPath = new URL('../claw-cred.txt', import.meta.url);
 const lines = readFileSync(credPath, 'utf8').split(/\r?\n/);
 let endpoint = '';
@@ -15,8 +30,16 @@ for (const line of lines) {
   if (line.startsWith('endpoint:')) endpoint = line.slice('endpoint:'.length).trim();
   if (line.startsWith('token:')) token = line.slice('token:'.length).trim();
 }
-if (!endpoint || !token) {
-  console.error('无法从 claw-cred.txt 解析 endpoint/token');
+if (!token) {
+  console.error('无法从 claw-cred.txt 解析 token');
+  process.exit(1);
+}
+
+// 支持通过环境变量或命令行参数覆盖 endpoint（例如 Tailscale 内网地址）。
+const argEndpoint = process.argv.find(a => a.startsWith('ws://') || a.startsWith('wss://'));
+endpoint = argEndpoint || process.env.OPENCLAW_ENDPOINT || endpoint;
+if (!endpoint) {
+  console.error('无法从 claw-cred.txt 或命令行/环境变量获取 endpoint');
   process.exit(1);
 }
 

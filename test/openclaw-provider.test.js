@@ -52,9 +52,9 @@ describe('OpenClawProvider', () => {
       assert.equal(events.map(e => e.delta).join(''), 'Hello from spike.');
 
       assert.ok(connectParams, 'connect params received');
-      assert.equal(connectParams.client.id, 'gateway-client');
+      assert.equal(connectParams.client.id, 'cli');
       assert.equal(connectParams.auth.token, 'test-token');
-      assert.ok(connectParams.scopes.includes('operator.admin'));
+      assert.ok(connectParams.scopes.includes('operator.write'));
 
       assert.ok(chatParams, 'chat.send params received');
       assert.equal(chatParams.sessionKey, 'agent:main:main');
