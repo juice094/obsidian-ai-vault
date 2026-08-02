@@ -2,3 +2,4 @@ node_modules/
 *.log
 main.js.map
 test-vault-t4/
+claw-cred.txt
