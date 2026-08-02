@@ -81,7 +81,7 @@ describe('SessionEngine', () => {
       assert.ok(engine.sessionPath.endsWith('.md'));
 
       const md = vaultIO._files.get(engine.sessionPath);
-      assert.ok(md.includes('> [!user]'));
+      assert.ok(md.includes('> [!user] 你'));
       assert.ok(md.includes('hello world'));
       assert.ok(md.includes('> [!think]- 已思考'));
       assert.ok(md.includes('思考中'));
@@ -288,6 +288,51 @@ writing...
       assert.ok(userSaved);
       assert.equal(userSaved.path, engine.sessionPath);
       assert.ok(engine.sessionPath.startsWith('AI 会话/'));
+    } finally {
+      server.close();
+    }
+  });
+
+  it('aborts an in-progress turn and marks it as interrupted', async () => {
+    const vaultIO = makeVaultIO();
+    const events = [];
+
+    const { server, url } = await startMockServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write('data: {"id":"cmpl-1","object":"chat.completion.chunk","created":1,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\n');
+        res.write('data: {"id":"cmpl-1","object":"chat.completion.chunk","created":1,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":" partial"}}]}\n\n');
+        // 保持连接不结束，给 abort 留出时间
+        setTimeout(() => res.end(), 5000);
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+        onEvent: (e) => events.push(e),
+      });
+
+      const sendPromise = engine.send('abort me');
+      // 等待 user-saved 后再 abort，确保 turn 已写入
+      while (!events.some(e => e.type === 'user-saved')) {
+        await new Promise(r => setTimeout(r, 10));
+      }
+      // 稍等流式开始再 abort
+      await new Promise(r => setTimeout(r, 80));
+      engine.abort();
+      await sendPromise;
+
+      const md = vaultIO._files.get(engine.sessionPath);
+      assert.ok(md.includes('> [!warning]- 本轮中断'));
+      assert.ok(md.includes('<!-- ai:end -->'));
+      assert.ok(events.some(e => e.type === 'turn-done'));
     } finally {
       server.close();
     }

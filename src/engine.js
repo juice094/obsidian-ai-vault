@@ -46,15 +46,22 @@ export class SessionEngine {
     this.tokenBudgetChars = tokenBudgetChars;
     this.sessionPath = null;
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
+    this.abortController = null;
+  }
+
+  abort() {
+    this.abortController?.abort();
   }
 
   async send(userText) {
+    this.abortController = new AbortController();
+    let turnId = null;
     try {
       await this._ensureSession(userText);
       const md = await this.vaultIO.read(this.sessionPath);
       const parsed = parseSession(md);
 
-      const turnId = (parsed.turns.length || 0) + 1;
+      turnId = (parsed.turns.length || 0) + 1;
       const userTurn = {
         id: turnId,
         userText,
@@ -80,6 +87,7 @@ export class SessionEngine {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: this.abortController.signal,
       });
       if (!response.ok) {
         throw new Error(`gateway error ${response.status}: ${await response.text()}`);
@@ -99,8 +107,15 @@ export class SessionEngine {
       this.onEvent({ type: 'turn-done', path: this.sessionPath, turnId });
       return { path: this.sessionPath };
     } catch (err) {
+      if (this.abortController?.signal?.aborted) {
+        await this._markAborted(turnId);
+        this.onEvent({ type: 'turn-done', path: this.sessionPath, turnId });
+        return { path: this.sessionPath };
+      }
       this.onEvent({ type: 'error', error: err.message });
       throw err;
+    } finally {
+      this.abortController = null;
     }
   }
 
@@ -270,26 +285,36 @@ export class SessionEngine {
     this.onEvent({ type: 'compacted', coversTurn: lastCoveredTurn });
   }
 
+  async _markAborted(turnId) {
+    if (!this.sessionPath || !turnId) return;
+    const md = await this.vaultIO.read(this.sessionPath);
+    const marker = `<!-- turn:${turnId}`;
+    const markerIdx = md.indexOf(marker);
+    if (markerIdx === -1) return;
+    const nextSep = md.indexOf('\n---\n', markerIdx);
+    const endIdx = nextSep === -1 ? md.length : nextSep;
+    const turnMd = md.slice(markerIdx, endIdx);
+    let updatedTurn;
+    if (turnMd.includes('<!-- ai:begin')) {
+      updatedTurn = turnMd.replace(
+        /(<!-- ai:begin id=\d+ -->\n[\s\S]*?)(?=\n?<!-- ai:end -->|$)/,
+        `$1\n\n> [!warning]- 本轮中断\n> 网络或进程异常，回复未完整生成。`
+      ) + '\n\n<!-- ai:end -->';
+    } else {
+      const warning = '> [!warning]- 本轮中断\n> 网络或进程异常，回复未完整生成。';
+      updatedTurn = `${turnMd}\n\n<!-- ai:begin id=${turnId} -->\n\n${warning}\n\n<!-- ai:end -->`;
+    }
+    const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
+    await this.vaultIO.write(this.sessionPath, updated);
+    this.onEvent({ type: 'resumed', turnId });
+  }
+
   async resume() {
     if (!this.sessionPath) return;
     const md = await this.vaultIO.read(this.sessionPath);
     const parsed = parseSession(md);
     const inProgress = parsed.turns.find(t => t.inProgress);
     if (!inProgress) return;
-    const marker = `<!-- turn:${inProgress.id}`;
-    const markerIdx = md.indexOf(marker);
-    if (markerIdx === -1) return;
-    const nextSep = md.indexOf('\n---\n', markerIdx);
-    const endIdx = nextSep === -1 ? md.length : nextSep;
-    const turnMd = md.slice(markerIdx, endIdx);
-    if (turnMd.includes('<!-- ai:begin')) {
-      const updatedTurn = turnMd.replace(
-        /(<!-- ai:begin id=\d+ -->\n[\s\S]*?)(?=\n?<!-- ai:end -->|$)/,
-        `$1\n\n> [!warning]- 本轮中断\n> 网络或进程异常，回复未完整生成。`
-      ) + '\n\n<!-- ai:end -->';
-      const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
-      await this.vaultIO.write(this.sessionPath, updated);
-      this.onEvent({ type: 'resumed', turnId: inProgress.id });
-    }
+    await this._markAborted(inProgress.id);
   }
 }

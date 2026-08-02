@@ -221,7 +221,7 @@ export function serializeTurn(turn) {
     parts.push(`<!-- turn:${turn.id} ${metaPairs} -->`);
   }
   if (turn.userText) {
-    parts.push(serializeCallout('user', '', '', turn.userText));
+    parts.push(serializeCallout('user', '', '你', turn.userText));
   }
   for (const search of turn.searches) {
     const resultLines = search.results.map((r, idx) =>
