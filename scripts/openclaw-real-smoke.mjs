@@ -45,7 +45,7 @@ async function runProvider() {
   const provider = new OpenClawProvider({
     url: endpoint,
     token,
-    clientId: 'obsidian-ai-vault-smoke',
+    // 使用 provider 默认值 'cli'，匹配真实 OpenClaw gateway 白名单
     sessionKey: 'agent:main:main',
     simpleConnect,
   });
@@ -85,7 +85,7 @@ async function runEngine() {
     provider: new OpenClawProvider({
       url: endpoint,
       token,
-      clientId: 'obsidian-ai-vault-smoke',
+      // 使用 provider 默认值 'cli'，匹配真实 OpenClaw gateway 白名单
       sessionKey: 'agent:main:main',
       simpleConnect,
     }),

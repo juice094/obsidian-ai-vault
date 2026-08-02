@@ -1,8 +1,9 @@
 // OpenClaw JSON-RPC over WebSocket provider（阶段 1）
 // 仅实现 admin token 认证 + ChatChunk/Done 事件映射；不启用工具/审批，不做 Ed25519 配对。
 
-const DEFAULT_CLIENT_ID = 'gateway-client';
+const DEFAULT_CLIENT_ID = 'cli';
 const DEFAULT_SESSION_KEY = 'agent:main:main';
+const DEFAULT_SCOPES = ['operator.read', 'operator.write'];
 
 export class OpenClawProvider {
   constructor({
@@ -145,12 +146,12 @@ export class OpenClawProvider {
                 maxProtocol: 3,
                 client: {
                   id: this.clientId,
-                  version: '0.0.1',
-                  platform: 'obsidian-ai-vault',
+                  version: '1.0.0',
+                  platform: 'linux',
                   mode: 'cli',
                 },
                 role: 'operator',
-                scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
+                scopes: DEFAULT_SCOPES,
                 auth: { token },
                 caps: [],
               },
