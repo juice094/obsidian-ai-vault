@@ -10,12 +10,14 @@ export class OpenClawProvider {
     token,
     clientId = DEFAULT_CLIENT_ID,
     sessionKey = DEFAULT_SESSION_KEY,
+    simpleConnect = false,
   }) {
     if (!token) throw new Error('OpenClaw token required');
     this.url = url;
     this.token = token;
     this.clientId = clientId;
     this.sessionKey = sessionKey;
+    this.simpleConnect = simpleConnect;
   }
 
   async *streamChat({ messages, model, thinking, search, signal }) {
@@ -80,6 +82,13 @@ export class OpenClawProvider {
     ws.addEventListener('error', onError);
     ws.addEventListener('close', onClose);
 
+    // 真实 OpenClaw gateway 可能使用极简 connect 载荷。
+    if (this.simpleConnect) {
+      ws.addEventListener('open', () => {
+        send({ type: 'connect', token });
+      });
+    }
+
     const abortHandler = () => {
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close(1000, 'abort');
@@ -119,47 +128,47 @@ export class OpenClawProvider {
     };
 
     try {
-      // 1. 等待 connect.challenge
-      while (true) {
-        const msg = await nextEvent();
-        if (!msg) throw new Error('OpenClaw connection closed before challenge');
-        const { parsed } = msg;
-        if (parsed.type === 'event' && parsed.event === 'connect.challenge') {
-          const connectReqId = randId();
-          send({
-            type: 'req',
-            id: connectReqId,
-            method: 'connect',
-            params: {
-              minProtocol: 3,
-              maxProtocol: 3,
-              client: {
-                id: this.clientId,
-                version: '0.0.1',
-                platform: 'obsidian-ai-vault',
-                mode: 'cli',
+      if (!this.simpleConnect) {
+        // 1. 等待 connect.challenge（clarity-gateway 方言）
+        while (true) {
+          const msg = await nextEvent();
+          if (!msg) throw new Error('OpenClaw connection closed before challenge');
+          const { parsed } = msg;
+          if (parsed.type === 'event' && parsed.event === 'connect.challenge') {
+            const connectReqId = randId();
+            send({
+              type: 'req',
+              id: connectReqId,
+              method: 'connect',
+              params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                client: {
+                  id: this.clientId,
+                  version: '0.0.1',
+                  platform: 'obsidian-ai-vault',
+                  mode: 'cli',
+                },
+                role: 'operator',
+                scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
+                auth: { token },
+                caps: [],
               },
-              role: 'operator',
-              scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
-              auth: { token },
-              caps: [],
-            },
-          });
-          break;
+            });
+            break;
+          }
         }
       }
 
-      // 2. 等待 hello-ok
+      // 2. 等待 hello-ok 等价确认
       while (true) {
         const msg = await nextEvent();
         if (!msg) throw new Error('OpenClaw connection closed before hello-ok');
         const { parsed } = msg;
-        if (parsed.type === 'res') {
-          if (!parsed.ok) {
-            throw new Error(`OpenClaw connect failed: ${parsed.error?.message || 'unknown'}`);
-          }
-          if (parsed.payload?.type === 'hello-ok') break;
+        if (this._isConnectError(parsed)) {
+          throw new Error(`OpenClaw connect failed: ${parsed.error?.message || parsed.message || 'unknown'}`);
         }
+        if (this._isHelloOk(parsed)) break;
       }
 
       // 3. 发送 chat.send
@@ -201,6 +210,25 @@ export class OpenClawProvider {
         ws.close(1000, 'stream end');
       }
     }
+  }
+
+  _isHelloOk(parsed) {
+    if (!parsed || typeof parsed !== 'object') return false;
+    if (parsed.type === 'res' && parsed.ok && parsed.payload?.type === 'hello-ok') return true;
+    if (this.simpleConnect) {
+      // 真实 gateway 方言未知，接受若干 hello-ok 等价形式。
+      if (parsed.type === 'hello-ok' || parsed.type === 'connected') return true;
+      if (parsed.event === 'hello-ok' || parsed.event === 'connected') return true;
+      if (parsed.type === 'res' && parsed.ok) return true;
+    }
+    return false;
+  }
+
+  _isConnectError(parsed) {
+    if (!parsed || typeof parsed !== 'object') return false;
+    if (parsed.type === 'res' && parsed.ok === false) return true;
+    if (this.simpleConnect && (parsed.type === 'error' || parsed.error)) return true;
+    return false;
   }
 
   _mapEvent(parsed) {
