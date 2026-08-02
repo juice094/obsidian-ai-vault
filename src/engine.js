@@ -1,5 +1,7 @@
 import { parseSession, serializeTurn, appendTurn, writeSummary, buildMessages } from './format.js';
 import { SUMMARY_PROMPT } from './prompts.js';
+import { OpenAICompatProvider } from './openai-compat-provider.js';
+import { OpenClawProvider } from './openclaw-provider.js';
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
@@ -36,8 +38,19 @@ function makeMeta({ turnId, userTextLen, model, usage }) {
 }
 
 export class SessionEngine {
-  constructor({ gatewayUrl, model, thinking, search, vaultIO, onEvent, tokenBudgetChars = 12000 }) {
-    this.gatewayUrl = gatewayUrl.replace(/\/$/, '');
+  constructor({
+    gatewayUrl,
+    model,
+    thinking,
+    search,
+    vaultIO,
+    onEvent,
+    tokenBudgetChars = 12000,
+    provider,
+    openclawUrl,
+    openclawToken,
+  }) {
+    this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, '') : '';
     this.model = model;
     this.thinking = thinking;
     this.search = search;
@@ -47,6 +60,29 @@ export class SessionEngine {
     this.sessionPath = null;
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
+    this.provider = this._resolveProvider({
+      provider,
+      gatewayUrl,
+      openclawUrl,
+      openclawToken,
+    });
+  }
+
+  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken }) {
+    if (provider && typeof provider === 'object') {
+      return provider;
+    }
+    const name = provider || 'openai-compat';
+    if (name === 'openai-compat') {
+      return new OpenAICompatProvider({ gatewayUrl });
+    }
+    if (name === 'openclaw') {
+      return new OpenClawProvider({
+        url: openclawUrl,
+        token: openclawToken,
+      });
+    }
+    throw new Error(`unknown provider: ${name}`);
   }
 
   abort() {
@@ -77,23 +113,15 @@ export class SessionEngine {
       this.onEvent({ type: 'user-saved', path: this.sessionPath });
 
       const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
-      const payload = {
-        model: this.model,
+      const stream = this.provider.streamChat({
         messages,
-        stream: true,
-      };
-
-      const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        model: this.model,
+        thinking: this.thinking,
+        search: this.search,
         signal: this.abortController.signal,
       });
-      if (!response.ok) {
-        throw new Error(`gateway error ${response.status}: ${await response.text()}`);
-      }
 
-      const { md: completed } = await this._consumeStream(response, userTurn);
+      const { md: completed } = await this._consumeStream(stream, userTurn);
       await this.vaultIO.write(this.sessionPath, completed);
 
       // 压缩检查
@@ -119,10 +147,7 @@ export class SessionEngine {
     }
   }
 
-  async _consumeStream(response, turn) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
+  async _consumeStream(stream, turn) {
     let baseMd = await this.vaultIO.read(this.sessionPath);
 
     // 当前 turn 之前的内容（不含当前 turn）
@@ -166,33 +191,24 @@ export class SessionEngine {
       }
     };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        const result = this._processSseLine(line);
-        if (!result) continue;
-        if (result.type === 'content') {
-          bodyBuffer += result.delta;
-          turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [];
-          this.onEvent({ type: 'content-delta', delta: result.delta });
-          await maybeFlush();
-        } else if (result.type === 'reasoning') {
-          thinkBuffer += result.delta;
-          turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
-          this.onEvent({ type: 'think-delta', delta: result.delta });
-          await maybeFlush();
-        } else if (result.type === 'search_results') {
-          searchResults = result.results;
-          turnState.searches = [this._toSearchEntry(result.results)];
-          this.onEvent({ type: 'search-done', results: result.results.results });
-          await flush(true);
-        } else if (result.type === 'finish') {
-          usage = result.usage;
-        }
+    for await (const result of stream) {
+      if (result.type === 'content') {
+        bodyBuffer += result.delta;
+        turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [];
+        this.onEvent({ type: 'content-delta', delta: result.delta });
+        await maybeFlush();
+      } else if (result.type === 'reasoning') {
+        thinkBuffer += result.delta;
+        turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+        this.onEvent({ type: 'think-delta', delta: result.delta });
+        await maybeFlush();
+      } else if (result.type === 'search_results') {
+        searchResults = result.results;
+        turnState.searches = [this._toSearchEntry(result.results)];
+        this.onEvent({ type: 'search-done', results: result.results.results });
+        await flush(true);
+      } else if (result.type === 'finish') {
+        usage = result.usage;
       }
     }
 
@@ -205,32 +221,6 @@ export class SessionEngine {
       inProgress: false,
     };
     return { md: prefix + serializeTurn(finalTurn) };
-  }
-
-  _processSseLine(line) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) return null;
-    const data = trimmed.slice(5).trim();
-    if (data === '[DONE]') return { type: 'done' };
-    try {
-      const chunk = JSON.parse(data);
-      const delta = chunk.choices?.[0]?.delta;
-      if (!delta) {
-        if (chunk.choices?.[0]?.finish_reason) {
-          return { type: 'finish', usage: chunk.usage };
-        }
-        return null;
-      }
-      if (delta.content) return { type: 'content', delta: delta.content };
-      if (delta.reasoning_content) return { type: 'reasoning', delta: delta.reasoning_content };
-      if (delta.search_results) return { type: 'search_results', results: delta.search_results };
-      if (chunk.choices?.[0]?.finish_reason) {
-        return { type: 'finish', usage: chunk.usage };
-      }
-      return null;
-    } catch {
-      return null;
-    }
   }
 
   _toSearchEntry(bundle) {
@@ -268,6 +258,7 @@ export class SessionEngine {
   }
 
   async _compact(md, parsed) {
+    if (!this.gatewayUrl) return;
     const messages = buildMessages(parsed, { tokenBudgetChars: this.tokenBudgetChars });
     const prompt = SUMMARY_PROMPT + messages.map(m => `${m.role}: ${m.content}`).join('\n\n');
     const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {

@@ -221,7 +221,7 @@ function serializeTurn(turn) {
     parts.push(`<!-- turn:${turn.id} ${metaPairs} -->`);
   }
   if (turn.userText) {
-    parts.push(serializeCallout("user", "", "", turn.userText));
+    parts.push(serializeCallout("user", "", "\u4F60", turn.userText));
   }
   for (const search of turn.searches) {
     const resultLines = search.results.map(
@@ -324,6 +324,294 @@ var SUMMARY_PROMPT = `\u8BF7\u628A\u4EE5\u4E0B AI \u4E0E\u7528\u6237\u7684\u591A
 \u5BF9\u8BDD\u5185\u5BB9\uFF1A
 `;
 
+// src/openai-compat-provider.js
+var OpenAICompatProvider = class {
+  constructor({ gatewayUrl }) {
+    this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+  }
+  async *streamChat({ messages, model, thinking, search, signal }) {
+    const payload = {
+      model,
+      messages,
+      stream: true
+    };
+    const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal
+    });
+    if (!response.ok) {
+      throw new Error(`gateway error ${response.status}: ${await response.text()}`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          const result = this._processSseLine(line);
+          if (result) yield result;
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  _processSseLine(line) {
+    var _a, _b, _c, _d, _e, _f;
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return null;
+    const data = trimmed.slice(5).trim();
+    if (data === "[DONE]") return null;
+    try {
+      const chunk = JSON.parse(data);
+      const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
+      if (!delta) {
+        if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
+          return { type: "finish", usage: chunk.usage };
+        }
+        return null;
+      }
+      if (delta.content) return { type: "content", delta: delta.content };
+      if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
+      if (delta.search_results) return { type: "search_results", results: delta.search_results };
+      if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
+        return { type: "finish", usage: chunk.usage };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+};
+
+// src/openclaw-provider.js
+var DEFAULT_CLIENT_ID = "gateway-client";
+var DEFAULT_SESSION_KEY = "agent:main:main";
+var OpenClawProvider = class {
+  constructor({
+    url,
+    token,
+    clientId = DEFAULT_CLIENT_ID,
+    sessionKey = DEFAULT_SESSION_KEY
+  }) {
+    if (!token) throw new Error("OpenClaw token required");
+    this.url = url;
+    this.token = token;
+    this.clientId = clientId;
+    this.sessionKey = sessionKey;
+  }
+  async *streamChat({ messages, model, thinking, search, signal }) {
+    var _a, _b, _c;
+    if (signal == null ? void 0 : signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const token = this.token;
+    const url = this.url;
+    const ws = new WebSocket(url);
+    const events = [];
+    let deferred = null;
+    let done = false;
+    let error = null;
+    const push = (ev) => {
+      if (done) return;
+      events.push(ev);
+      if (deferred) {
+        deferred.resolve();
+        deferred = null;
+      }
+    };
+    const fail = (err) => {
+      if (done) return;
+      error = err;
+      done = true;
+      if (deferred) {
+        deferred.reject(err);
+        deferred = null;
+      }
+    };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (deferred) {
+        deferred.resolve();
+        deferred = null;
+      }
+    };
+    const onMessage = (ev) => {
+      let parsed;
+      try {
+        parsed = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      push({ type: "message", parsed });
+    };
+    const onError = (err) => {
+      fail(new Error(`websocket error: ${err.message || String(err)}`));
+    };
+    const onClose = () => finish();
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("error", onError);
+    ws.addEventListener("close", onClose);
+    const abortHandler = () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1e3, "abort");
+      }
+      fail(new DOMException("Aborted", "AbortError"));
+    };
+    signal == null ? void 0 : signal.addEventListener("abort", abortHandler);
+    const nextEvent = () => {
+      if (events.length) return Promise.resolve(events.shift());
+      if (error) return Promise.reject(error);
+      if (done) return Promise.resolve(null);
+      let resolve, reject;
+      const p = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      deferred = { resolve, reject };
+      return p.then(() => {
+        if (error) throw error;
+        if (events.length) return events.shift();
+        return null;
+      });
+    };
+    const send = (obj) => {
+      ws.send(JSON.stringify(obj));
+    };
+    const randId = () => {
+      var _a2;
+      if ((_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) return globalThis.crypto.randomUUID();
+      return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    };
+    const lastUserContent = () => {
+      var _a2;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user") return messages[i].content;
+      }
+      return ((_a2 = messages[messages.length - 1]) == null ? void 0 : _a2.content) || "";
+    };
+    try {
+      while (true) {
+        const msg = await nextEvent();
+        if (!msg) throw new Error("OpenClaw connection closed before challenge");
+        const { parsed } = msg;
+        if (parsed.type === "event" && parsed.event === "connect.challenge") {
+          const connectReqId = randId();
+          send({
+            type: "req",
+            id: connectReqId,
+            method: "connect",
+            params: {
+              minProtocol: 3,
+              maxProtocol: 3,
+              client: {
+                id: this.clientId,
+                version: "0.0.1",
+                platform: "obsidian-ai-vault",
+                mode: "cli"
+              },
+              role: "operator",
+              scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
+              auth: { token },
+              caps: []
+            }
+          });
+          break;
+        }
+      }
+      while (true) {
+        const msg = await nextEvent();
+        if (!msg) throw new Error("OpenClaw connection closed before hello-ok");
+        const { parsed } = msg;
+        if (parsed.type === "res") {
+          if (!parsed.ok) {
+            throw new Error(`OpenClaw connect failed: ${((_a = parsed.error) == null ? void 0 : _a.message) || "unknown"}`);
+          }
+          if (((_b = parsed.payload) == null ? void 0 : _b.type) === "hello-ok") break;
+        }
+      }
+      const chatReqId = randId();
+      send({
+        type: "req",
+        id: chatReqId,
+        method: "chat.send",
+        params: {
+          sessionKey: this.sessionKey,
+          message: [{ type: "text", text: lastUserContent() }],
+          stream: true
+        }
+      });
+      let finished = false;
+      while (!finished) {
+        const msg = await nextEvent();
+        if (!msg) break;
+        const { parsed } = msg;
+        if (parsed.type === "res" && parsed.id === chatReqId) {
+          if (!parsed.ok) {
+            throw new Error(`OpenClaw chat.send failed: ${((_c = parsed.error) == null ? void 0 : _c.message) || "unknown"}`);
+          }
+          continue;
+        }
+        const ev = this._mapEvent(parsed);
+        if (ev) {
+          yield ev;
+          if (ev.type === "finish") finished = true;
+        }
+      }
+    } finally {
+      signal == null ? void 0 : signal.removeEventListener("abort", abortHandler);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1e3, "stream end");
+      }
+    }
+  }
+  _mapEvent(parsed) {
+    var _a, _b;
+    const event = parsed.event;
+    const payload = parsed.payload;
+    if (!payload) return null;
+    if (event === "ChatChunk" || event === "chat") {
+      const delta = payload.delta;
+      if (delta) {
+        if (delta.content) return { type: "content", delta: delta.content };
+        if (delta.reasoning) return { type: "reasoning", delta: delta.reasoning };
+        if (delta.text) return { type: "content", delta: delta.text };
+      }
+      if ((_a = payload.message) == null ? void 0 : _a.content) {
+        return { type: "content", delta: payload.message.content };
+      }
+      if (payload.content) {
+        return { type: "content", delta: payload.content };
+      }
+    }
+    if (event === "ReasoningChunk") {
+      const delta = payload.delta;
+      if (delta) {
+        if (delta.reasoning) return { type: "reasoning", delta: delta.reasoning };
+        if (delta.content) return { type: "reasoning", delta: delta.content };
+        if (delta.text) return { type: "reasoning", delta: delta.text };
+      }
+      if (payload.reasoning) return { type: "reasoning", delta: payload.reasoning };
+      if ((_b = payload.message) == null ? void 0 : _b.content) return { type: "reasoning", delta: payload.message.content };
+    }
+    if (event === "Done" || payload.done === true) {
+      return { type: "finish" };
+    }
+    if (payload.search_results) {
+      return { type: "search_results", results: payload.search_results };
+    }
+    return null;
+  }
+};
+
 // src/engine.js
 function todayDate() {
   return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -355,8 +643,19 @@ function makeMeta({ turnId, userTextLen, model, usage }) {
   };
 }
 var SessionEngine = class {
-  constructor({ gatewayUrl, model, thinking, search, vaultIO, onEvent, tokenBudgetChars = 12e3 }) {
-    this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+  constructor({
+    gatewayUrl,
+    model,
+    thinking,
+    search,
+    vaultIO,
+    onEvent,
+    tokenBudgetChars = 12e3,
+    provider,
+    openclawUrl,
+    openclawToken
+  }) {
+    this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
     this.model = model;
     this.thinking = thinking;
     this.search = search;
@@ -366,13 +665,43 @@ var SessionEngine = class {
     this.tokenBudgetChars = tokenBudgetChars;
     this.sessionPath = null;
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
+    this.abortController = null;
+    this.provider = this._resolveProvider({
+      provider,
+      gatewayUrl,
+      openclawUrl,
+      openclawToken
+    });
+  }
+  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken }) {
+    if (provider && typeof provider === "object") {
+      return provider;
+    }
+    const name = provider || "openai-compat";
+    if (name === "openai-compat") {
+      return new OpenAICompatProvider({ gatewayUrl });
+    }
+    if (name === "openclaw") {
+      return new OpenClawProvider({
+        url: openclawUrl,
+        token: openclawToken
+      });
+    }
+    throw new Error(`unknown provider: ${name}`);
+  }
+  abort() {
+    var _a;
+    (_a = this.abortController) == null ? void 0 : _a.abort();
   }
   async send(userText) {
+    var _a, _b;
+    this.abortController = new AbortController();
+    let turnId = null;
     try {
       await this._ensureSession(userText);
       const md = await this.vaultIO.read(this.sessionPath);
       const parsed = parseSession(md);
-      const turnId = (parsed.turns.length || 0) + 1;
+      turnId = (parsed.turns.length || 0) + 1;
       const userTurn = {
         id: turnId,
         userText,
@@ -387,20 +716,14 @@ var SessionEngine = class {
       await this.vaultIO.write(this.sessionPath, updated);
       this.onEvent({ type: "user-saved", path: this.sessionPath });
       const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
-      const payload = {
-        model: this.model,
+      const stream = this.provider.streamChat({
         messages,
-        stream: true
-      };
-      const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        model: this.model,
+        thinking: this.thinking,
+        search: this.search,
+        signal: this.abortController.signal
       });
-      if (!response.ok) {
-        throw new Error(`gateway error ${response.status}: ${await response.text()}`);
-      }
-      const { md: completed } = await this._consumeStream(response, userTurn);
+      const { md: completed } = await this._consumeStream(stream, userTurn);
       await this.vaultIO.write(this.sessionPath, completed);
       const afterParse = parseSession(completed);
       const checkMessages = buildMessages(afterParse, { tokenBudgetChars: this.tokenBudgetChars });
@@ -411,14 +734,18 @@ var SessionEngine = class {
       this.onEvent({ type: "turn-done", path: this.sessionPath, turnId });
       return { path: this.sessionPath };
     } catch (err) {
+      if ((_b = (_a = this.abortController) == null ? void 0 : _a.signal) == null ? void 0 : _b.aborted) {
+        await this._markAborted(turnId);
+        this.onEvent({ type: "turn-done", path: this.sessionPath, turnId });
+        return { path: this.sessionPath };
+      }
       this.onEvent({ type: "error", error: err.message });
       throw err;
+    } finally {
+      this.abortController = null;
     }
   }
-  async _consumeStream(response, turn) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
+  async _consumeStream(stream, turn) {
     let baseMd = await this.vaultIO.read(this.sessionPath);
     const marker = `<!-- turn:${turn.id}`;
     const markerIdx = baseMd.indexOf(marker);
@@ -453,33 +780,24 @@ var SessionEngine = class {
         await flush();
       }
     };
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop();
-      for (const line of lines) {
-        const result = this._processSseLine(line);
-        if (!result) continue;
-        if (result.type === "content") {
-          bodyBuffer += result.delta;
-          turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
-          this.onEvent({ type: "content-delta", delta: result.delta });
-          await maybeFlush();
-        } else if (result.type === "reasoning") {
-          thinkBuffer += result.delta;
-          turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
-          this.onEvent({ type: "think-delta", delta: result.delta });
-          await maybeFlush();
-        } else if (result.type === "search_results") {
-          searchResults = result.results;
-          turnState.searches = [this._toSearchEntry(result.results)];
-          this.onEvent({ type: "search-done", results: result.results.results });
-          await flush(true);
-        } else if (result.type === "finish") {
-          usage = result.usage;
-        }
+    for await (const result of stream) {
+      if (result.type === "content") {
+        bodyBuffer += result.delta;
+        turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+        this.onEvent({ type: "content-delta", delta: result.delta });
+        await maybeFlush();
+      } else if (result.type === "reasoning") {
+        thinkBuffer += result.delta;
+        turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+        this.onEvent({ type: "think-delta", delta: result.delta });
+        await maybeFlush();
+      } else if (result.type === "search_results") {
+        searchResults = result.results;
+        turnState.searches = [this._toSearchEntry(result.results)];
+        this.onEvent({ type: "search-done", results: result.results.results });
+        await flush(true);
+      } else if (result.type === "finish") {
+        usage = result.usage;
       }
     }
     await flush(true);
@@ -489,32 +807,6 @@ var SessionEngine = class {
       inProgress: false
     };
     return { md: prefix + serializeTurn(finalTurn) };
-  }
-  _processSseLine(line) {
-    var _a, _b, _c, _d, _e, _f;
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) return null;
-    const data = trimmed.slice(5).trim();
-    if (data === "[DONE]") return { type: "done" };
-    try {
-      const chunk = JSON.parse(data);
-      const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
-      if (!delta) {
-        if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
-          return { type: "finish", usage: chunk.usage };
-        }
-        return null;
-      }
-      if (delta.content) return { type: "content", delta: delta.content };
-      if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
-      if (delta.search_results) return { type: "search_results", results: delta.search_results };
-      if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
-        return { type: "finish", usage: chunk.usage };
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
   }
   _toSearchEntry(bundle) {
     const queries = bundle.queries || [];
@@ -554,6 +846,7 @@ ${fm}
   }
   async _compact(md, parsed) {
     var _a, _b, _c, _d, _e, _f, _g, _h;
+    if (!this.gatewayUrl) return;
     const messages = buildMessages(parsed, { tokenBudgetChars: this.tokenBudgetChars });
     const prompt = SUMMARY_PROMPT + messages.map((m) => `${m.role}: ${m.content}`).join("\n\n");
     const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
@@ -570,30 +863,45 @@ ${fm}
     await this.vaultIO.write(this.sessionPath, updated);
     this.onEvent({ type: "compacted", coversTurn: lastCoveredTurn });
   }
-  async resume() {
-    if (!this.sessionPath) return;
+  async _markAborted(turnId) {
+    if (!this.sessionPath || !turnId) return;
     const md = await this.vaultIO.read(this.sessionPath);
-    const parsed = parseSession(md);
-    const inProgress = parsed.turns.find((t) => t.inProgress);
-    if (!inProgress) return;
-    const marker = `<!-- turn:${inProgress.id}`;
+    const marker = `<!-- turn:${turnId}`;
     const markerIdx = md.indexOf(marker);
     if (markerIdx === -1) return;
     const nextSep = md.indexOf("\n---\n", markerIdx);
     const endIdx = nextSep === -1 ? md.length : nextSep;
     const turnMd = md.slice(markerIdx, endIdx);
+    let updatedTurn;
     if (turnMd.includes("<!-- ai:begin")) {
-      const updatedTurn = turnMd.replace(
+      updatedTurn = turnMd.replace(
         /(<!-- ai:begin id=\d+ -->\n[\s\S]*?)(?=\n?<!-- ai:end -->|$)/,
         `$1
 
 > [!warning]- \u672C\u8F6E\u4E2D\u65AD
 > \u7F51\u7EDC\u6216\u8FDB\u7A0B\u5F02\u5E38\uFF0C\u56DE\u590D\u672A\u5B8C\u6574\u751F\u6210\u3002`
       ) + "\n\n<!-- ai:end -->";
-      const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
-      await this.vaultIO.write(this.sessionPath, updated);
-      this.onEvent({ type: "resumed", turnId: inProgress.id });
+    } else {
+      const warning = "> [!warning]- \u672C\u8F6E\u4E2D\u65AD\n> \u7F51\u7EDC\u6216\u8FDB\u7A0B\u5F02\u5E38\uFF0C\u56DE\u590D\u672A\u5B8C\u6574\u751F\u6210\u3002";
+      updatedTurn = `${turnMd}
+
+<!-- ai:begin id=${turnId} -->
+
+${warning}
+
+<!-- ai:end -->`;
     }
+    const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
+    await this.vaultIO.write(this.sessionPath, updated);
+    this.onEvent({ type: "resumed", turnId });
+  }
+  async resume() {
+    if (!this.sessionPath) return;
+    const md = await this.vaultIO.read(this.sessionPath);
+    const parsed = parseSession(md);
+    const inProgress = parsed.turns.find((t) => t.inProgress);
+    if (!inProgress) return;
+    await this._markAborted(inProgress.id);
   }
 };
 

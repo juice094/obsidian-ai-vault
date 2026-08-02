@@ -196,7 +196,7 @@ ${body}`;
       parts.push(`<!-- turn:${turn.id} ${metaPairs} -->`);
     }
     if (turn.userText) {
-      parts.push(serializeCallout("user", "", "", turn.userText));
+      parts.push(serializeCallout("user", "", "\u4F60", turn.userText));
     }
     for (const search of turn.searches) {
       const resultLines = search.results.map(
@@ -341,13 +341,21 @@ ${lines.join("\n")}
       this.tokenBudgetChars = tokenBudgetChars;
       this.sessionPath = null;
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
+      this.abortController = null;
+    }
+    abort() {
+      var _a;
+      (_a = this.abortController) == null ? void 0 : _a.abort();
     }
     async send(userText) {
+      var _a, _b;
+      this.abortController = new AbortController();
+      let turnId = null;
       try {
         await this._ensureSession(userText);
         const md = await this.vaultIO.read(this.sessionPath);
         const parsed = parseSession(md);
-        const turnId = (parsed.turns.length || 0) + 1;
+        turnId = (parsed.turns.length || 0) + 1;
         const userTurn = {
           id: turnId,
           userText,
@@ -370,7 +378,8 @@ ${lines.join("\n")}
         const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: this.abortController.signal
         });
         if (!response.ok) {
           throw new Error(`gateway error ${response.status}: ${await response.text()}`);
@@ -386,8 +395,15 @@ ${lines.join("\n")}
         this.onEvent({ type: "turn-done", path: this.sessionPath, turnId });
         return { path: this.sessionPath };
       } catch (err) {
+        if ((_b = (_a = this.abortController) == null ? void 0 : _a.signal) == null ? void 0 : _b.aborted) {
+          await this._markAborted(turnId);
+          this.onEvent({ type: "turn-done", path: this.sessionPath, turnId });
+          return { path: this.sessionPath };
+        }
         this.onEvent({ type: "error", error: err.message });
         throw err;
+      } finally {
+        this.abortController = null;
       }
     }
     async _consumeStream(response, turn) {
@@ -406,10 +422,28 @@ ${lines.join("\n")}
         bodyBlocks: [],
         aiBeginId: turn.id
       };
-      let bodyText = "";
-      let thinkText = "";
+      let bodyBuffer = "";
+      let thinkBuffer = "";
       let searchResults = null;
       let usage = null;
+      let lastFlushAt = performance.now();
+      const FLUSH_INTERVAL_MS = 150;
+      const FLUSH_SIZE_CHARS = 4096;
+      const flush = async (force = false) => {
+        const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+        if (!force && bufferedChars === 0) return;
+        turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+        turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+        await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
+        lastFlushAt = performance.now();
+      };
+      const maybeFlush = async () => {
+        const bufferedChars = bodyBuffer.length + thinkBuffer.length;
+        const elapsed = performance.now() - lastFlushAt;
+        if (elapsed >= FLUSH_INTERVAL_MS || bufferedChars >= FLUSH_SIZE_CHARS) {
+          await flush();
+        }
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -420,23 +454,26 @@ ${lines.join("\n")}
           const result = this._processSseLine(line);
           if (!result) continue;
           if (result.type === "content") {
-            bodyText += result.delta;
-            turnState.bodyBlocks = bodyText ? bodyText.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+            bodyBuffer += result.delta;
+            turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
             this.onEvent({ type: "content-delta", delta: result.delta });
+            await maybeFlush();
           } else if (result.type === "reasoning") {
-            thinkText += result.delta;
-            turnState.thinks = thinkText ? [{ elapsedSecs: null, text: thinkText }] : [];
+            thinkBuffer += result.delta;
+            turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
             this.onEvent({ type: "think-delta", delta: result.delta });
+            await maybeFlush();
           } else if (result.type === "search_results") {
             searchResults = result.results;
             turnState.searches = [this._toSearchEntry(result.results)];
             this.onEvent({ type: "search-done", results: result.results.results });
+            await flush(true);
           } else if (result.type === "finish") {
             usage = result.usage;
           }
-          await this.vaultIO.write(this.sessionPath, prefix + serializeTurn(turnState));
         }
       }
+      await flush(true);
       const finalTurn = {
         ...turnState,
         meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),
@@ -483,6 +520,7 @@ ${lines.join("\n")}
     async _ensureSession(userText) {
       if (this.sessionPath) return;
       const dir = "AI \u4F1A\u8BDD";
+      await this.vaultIO.mkdir(dir);
       const date = todayDate();
       const title = titleFromUserText(userText);
       const base = `${dir}/${date} ${title}.md`;
@@ -523,30 +561,45 @@ ${fm}
       await this.vaultIO.write(this.sessionPath, updated);
       this.onEvent({ type: "compacted", coversTurn: lastCoveredTurn });
     }
-    async resume() {
-      if (!this.sessionPath) return;
+    async _markAborted(turnId) {
+      if (!this.sessionPath || !turnId) return;
       const md = await this.vaultIO.read(this.sessionPath);
-      const parsed = parseSession(md);
-      const inProgress = parsed.turns.find((t) => t.inProgress);
-      if (!inProgress) return;
-      const marker = `<!-- turn:${inProgress.id}`;
+      const marker = `<!-- turn:${turnId}`;
       const markerIdx = md.indexOf(marker);
       if (markerIdx === -1) return;
       const nextSep = md.indexOf("\n---\n", markerIdx);
       const endIdx = nextSep === -1 ? md.length : nextSep;
       const turnMd = md.slice(markerIdx, endIdx);
+      let updatedTurn;
       if (turnMd.includes("<!-- ai:begin")) {
-        const updatedTurn = turnMd.replace(
+        updatedTurn = turnMd.replace(
           /(<!-- ai:begin id=\d+ -->\n[\s\S]*?)(?=\n?<!-- ai:end -->|$)/,
           `$1
 
 > [!warning]- \u672C\u8F6E\u4E2D\u65AD
 > \u7F51\u7EDC\u6216\u8FDB\u7A0B\u5F02\u5E38\uFF0C\u56DE\u590D\u672A\u5B8C\u6574\u751F\u6210\u3002`
         ) + "\n\n<!-- ai:end -->";
-        const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
-        await this.vaultIO.write(this.sessionPath, updated);
-        this.onEvent({ type: "resumed", turnId: inProgress.id });
+      } else {
+        const warning = "> [!warning]- \u672C\u8F6E\u4E2D\u65AD\n> \u7F51\u7EDC\u6216\u8FDB\u7A0B\u5F02\u5E38\uFF0C\u56DE\u590D\u672A\u5B8C\u6574\u751F\u6210\u3002";
+        updatedTurn = `${turnMd}
+
+<!-- ai:begin id=${turnId} -->
+
+${warning}
+
+<!-- ai:end -->`;
       }
+      const updated = md.slice(0, markerIdx) + updatedTurn + md.slice(endIdx);
+      await this.vaultIO.write(this.sessionPath, updated);
+      this.onEvent({ type: "resumed", turnId });
+    }
+    async resume() {
+      if (!this.sessionPath) return;
+      const md = await this.vaultIO.read(this.sessionPath);
+      const parsed = parseSession(md);
+      const inProgress = parsed.turns.find((t) => t.inProgress);
+      if (!inProgress) return;
+      await this._markAborted(inProgress.id);
     }
   };
 

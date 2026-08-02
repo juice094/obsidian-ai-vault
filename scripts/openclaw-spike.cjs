@@ -42,6 +42,12 @@ function redactEvents(list) {
   }));
 }
 
+function isDoneEvent(parsed) {
+  if (parsed.event === 'Done') return true;
+  if (parsed.event === 'chat' && parsed.payload?.done) return true;
+  return false;
+}
+
 function connect() {
   ws = new WebSocket(url);
 
@@ -108,8 +114,8 @@ function connect() {
       return;
     }
 
-    if (parsed.type === 'event' && parsed.event === 'chat') {
-      if (parsed.payload && parsed.payload.done) {
+    if (parsed.type === 'event' && (parsed.event === 'chat' || parsed.event === 'ChatChunk' || parsed.event === 'ReasoningChunk' || parsed.event === 'Done')) {
+      if (isDoneEvent(parsed)) {
         state = 'done';
       }
     }
