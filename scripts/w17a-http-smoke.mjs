@@ -7,19 +7,16 @@ import { setTimeout } from 'node:timers/promises';
 
 const credPath = new URL('../claw-cred.txt', import.meta.url);
 const lines = readFileSync(credPath, 'utf8').split(/\r?\n/);
+// Gray-Cloud 确认的正确 HTTP 面 root URL（2026-08-03）
 let endpoint = 'http://100.69.11.71:18789';
 let token = '';
 for (const line of lines) {
-  if (line.startsWith('endpoint:')) {
-    const v = line.slice('endpoint:'.length).trim();
-    if (v.startsWith('http')) endpoint = v.replace(/\/ws$/, '').replace(/:18789.*$/, ':18789');
-  }
   if (line.startsWith('token:')) token = line.slice('token:'.length).trim();
 }
 
 const argEndpoint = process.argv.find(a => a.startsWith('http://') || a.startsWith('https://'));
-if (argEndpoint) endpoint = argEndpoint;
-const url = `${endpoint.replace(/\/$/, '')}/v1/chat/completions`;
+if (argEndpoint) endpoint = argEndpoint.replace(/\/$/, '');
+const url = `${endpoint}/v1/chat/completions`;
 
 if (!token) {
   console.error('无法从 claw-cred.txt 解析 token');
@@ -31,7 +28,7 @@ console.log('url:', url);
 console.log('token length:', token.length);
 
 const body = {
-  model: 'deepseek-chat',
+  model: 'openclaw/default',
   messages: [{ role: 'user', content: '用一句话问候我，并说明你是否支持 reasoning/search 扩展。' }],
   stream: true,
   // 尝试请求扩展能力；HTTP 面若不支持会忽略未知字段

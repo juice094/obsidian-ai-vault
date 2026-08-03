@@ -66,6 +66,33 @@ describe('OpenAICompatProvider', () => {
     }
   });
 
+  it('sends Authorization header when apiKey is provided', async () => {
+    let authHeader = null;
+    const { server, url } = await startMockServer((req, res) => {
+      authHeader = req.headers['authorization'];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end('data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+    });
+
+    try {
+      const provider = new OpenAICompatProvider({ gatewayUrl: url, apiKey: 'secret-token' });
+      const events = [];
+      for await (const ev of provider.streamChat({
+        messages: [{ role: 'user', content: 'hello' }],
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        signal: new AbortController().signal,
+      })) {
+        events.push(ev);
+      }
+      assert.equal(authHeader, 'Bearer secret-token');
+      assert.ok(events.some(e => e.type === 'content'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('throws on non-ok gateway response', async () => {
     const { server, url } = await startMockServer((req, res) => {
       res.writeHead(503);

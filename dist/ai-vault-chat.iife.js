@@ -299,6 +299,345 @@ ${lines.join("\n")}
 \u5BF9\u8BDD\u5185\u5BB9\uFF1A
 `;
 
+  // src/openai-compat-provider.js
+  var OpenAICompatProvider = class {
+    constructor({ gatewayUrl }) {
+      this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+    }
+    async *streamChat({ messages, model, thinking, search, signal }) {
+      const payload = {
+        model,
+        messages,
+        stream: true
+      };
+      const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal
+      });
+      if (!response.ok) {
+        throw new Error(`gateway error ${response.status}: ${await response.text()}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop();
+          for (const line of lines) {
+            const result = this._processSseLine(line);
+            if (result) yield result;
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    _processSseLine(line) {
+      var _a, _b, _c, _d, _e, _f;
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) return null;
+      const data = trimmed.slice(5).trim();
+      if (data === "[DONE]") return null;
+      try {
+        const chunk = JSON.parse(data);
+        const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
+        if (!delta) {
+          if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
+            return { type: "finish", usage: chunk.usage };
+          }
+          return null;
+        }
+        if (delta.content) return { type: "content", delta: delta.content };
+        if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
+        if (delta.search_results) return { type: "search_results", results: delta.search_results };
+        if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
+          return { type: "finish", usage: chunk.usage };
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
+  };
+
+  // src/openclaw-provider.js
+  var DEFAULT_CLIENT_ID = "cli";
+  var DEFAULT_SESSION_KEY = "agent:main:main";
+  var DEFAULT_SCOPES = ["operator.read", "operator.write"];
+  var OpenClawProvider = class {
+    constructor({
+      url,
+      token,
+      clientId = DEFAULT_CLIENT_ID,
+      sessionKey = DEFAULT_SESSION_KEY,
+      simpleConnect = false
+    }) {
+      if (!token) throw new Error("OpenClaw token required");
+      this.url = url;
+      this.token = token;
+      this.clientId = clientId;
+      this.sessionKey = sessionKey;
+      this.simpleConnect = simpleConnect;
+    }
+    async *streamChat({ messages, model, thinking, search, signal }) {
+      var _a, _b;
+      if (signal == null ? void 0 : signal.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      const token = this.token;
+      const url = this.url;
+      const ws = new WebSocket(url);
+      const events = [];
+      let deferred = null;
+      let done = false;
+      let error = null;
+      const push = (ev) => {
+        if (done) return;
+        events.push(ev);
+        if (deferred) {
+          deferred.resolve();
+          deferred = null;
+        }
+      };
+      const fail = (err) => {
+        if (done) return;
+        error = err;
+        done = true;
+        if (deferred) {
+          deferred.reject(err);
+          deferred = null;
+        }
+      };
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (deferred) {
+          deferred.resolve();
+          deferred = null;
+        }
+      };
+      const onMessage = (ev) => {
+        let parsed;
+        try {
+          parsed = JSON.parse(ev.data);
+        } catch (e) {
+          return;
+        }
+        push({ type: "message", parsed });
+      };
+      const onError = (err) => {
+        fail(new Error(`websocket error: ${err.message || String(err)}`));
+      };
+      const onClose = () => finish();
+      ws.addEventListener("message", onMessage);
+      ws.addEventListener("error", onError);
+      ws.addEventListener("close", onClose);
+      if (this.simpleConnect) {
+        ws.addEventListener("open", () => {
+          send({ type: "connect", token });
+        });
+      }
+      const abortHandler = () => {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1e3, "abort");
+        }
+        fail(new DOMException("Aborted", "AbortError"));
+      };
+      signal == null ? void 0 : signal.addEventListener("abort", abortHandler);
+      const nextEvent = () => {
+        if (events.length) return Promise.resolve(events.shift());
+        if (error) return Promise.reject(error);
+        if (done) return Promise.resolve(null);
+        let resolve, reject;
+        const p = new Promise((res, rej) => {
+          resolve = res;
+          reject = rej;
+        });
+        deferred = { resolve, reject };
+        return p.then(() => {
+          if (error) throw error;
+          if (events.length) return events.shift();
+          return null;
+        });
+      };
+      const send = (obj) => {
+        ws.send(JSON.stringify(obj));
+      };
+      const randId = () => {
+        var _a2;
+        if ((_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) return globalThis.crypto.randomUUID();
+        return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      };
+      const lastUserContent = () => {
+        var _a2;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "user") return messages[i].content;
+        }
+        return ((_a2 = messages[messages.length - 1]) == null ? void 0 : _a2.content) || "";
+      };
+      try {
+        if (!this.simpleConnect) {
+          while (true) {
+            const msg = await nextEvent();
+            if (!msg) throw new Error("OpenClaw connection closed before challenge");
+            const { parsed } = msg;
+            if (parsed.type === "event" && parsed.event === "connect.challenge") {
+              const connectReqId = randId();
+              send({
+                type: "req",
+                id: connectReqId,
+                method: "connect",
+                params: {
+                  minProtocol: 3,
+                  maxProtocol: 3,
+                  client: {
+                    id: this.clientId,
+                    version: "1.0.0",
+                    platform: "linux",
+                    mode: "cli"
+                  },
+                  role: "operator",
+                  scopes: DEFAULT_SCOPES,
+                  auth: { token },
+                  caps: []
+                }
+              });
+              break;
+            }
+          }
+        }
+        while (true) {
+          const msg = await nextEvent();
+          if (!msg) throw new Error("OpenClaw connection closed before hello-ok");
+          const { parsed } = msg;
+          if (this._isConnectError(parsed)) {
+            throw new Error(`OpenClaw connect failed: ${((_a = parsed.error) == null ? void 0 : _a.message) || parsed.message || "unknown"}`);
+          }
+          if (this._isHelloOk(parsed)) break;
+        }
+        const chatReqId = randId();
+        send({
+          type: "req",
+          id: chatReqId,
+          method: "chat.send",
+          params: {
+            idempotencyKey: randId(),
+            sessionKey: this.sessionKey,
+            message: lastUserContent()
+          }
+        });
+        let finished = false;
+        while (!finished) {
+          const msg = await nextEvent();
+          if (!msg) break;
+          const { parsed } = msg;
+          if (parsed.type === "res" && parsed.id === chatReqId) {
+            if (!parsed.ok) {
+              throw new Error(`OpenClaw chat.send failed: ${((_b = parsed.error) == null ? void 0 : _b.message) || "unknown"}`);
+            }
+            continue;
+          }
+          const ev = this._mapEvent(parsed);
+          if (ev) {
+            yield ev;
+            if (ev.type === "finish") finished = true;
+          }
+        }
+      } finally {
+        signal == null ? void 0 : signal.removeEventListener("abort", abortHandler);
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1e3, "stream end");
+        }
+      }
+    }
+    _isHelloOk(parsed) {
+      var _a;
+      if (!parsed || typeof parsed !== "object") return false;
+      if (parsed.type === "res" && parsed.ok && ((_a = parsed.payload) == null ? void 0 : _a.type) === "hello-ok") return true;
+      if (this.simpleConnect) {
+        if (parsed.type === "hello-ok" || parsed.type === "connected") return true;
+        if (parsed.event === "hello-ok" || parsed.event === "connected") return true;
+        if (parsed.type === "res" && parsed.ok) return true;
+      }
+      return false;
+    }
+    _isConnectError(parsed) {
+      if (!parsed || typeof parsed !== "object") return false;
+      if (parsed.type === "res" && parsed.ok === false) return true;
+      if (this.simpleConnect && (parsed.type === "error" || parsed.error)) return true;
+      return false;
+    }
+    _mapEvent(parsed) {
+      var _a, _b, _c;
+      const event = parsed.event;
+      const payload = parsed.payload;
+      if (!payload) return null;
+      if (event === "ChatChunk" || event === "chat") {
+        const delta = payload.delta;
+        if (delta) {
+          if (delta.content) return { type: "content", delta: delta.content };
+          if (delta.reasoning) return { type: "reasoning", delta: delta.reasoning };
+          if (delta.text) return { type: "content", delta: delta.text };
+        }
+        if ((_a = payload.message) == null ? void 0 : _a.content) {
+          return { type: "content", delta: payload.message.content };
+        }
+        if (payload.content) {
+          return { type: "content", delta: payload.content };
+        }
+      }
+      if (event === "ReasoningChunk") {
+        const delta = payload.delta;
+        if (delta) {
+          if (delta.reasoning) return { type: "reasoning", delta: delta.reasoning };
+          if (delta.content) return { type: "reasoning", delta: delta.content };
+          if (delta.text) return { type: "reasoning", delta: delta.text };
+        }
+        if (payload.reasoning) return { type: "reasoning", delta: payload.reasoning };
+        if ((_b = payload.message) == null ? void 0 : _b.content) return { type: "reasoning", delta: payload.message.content };
+      }
+      if (event === "agent") {
+        const data = payload.data;
+        if (payload.stream === "lifecycle" && (data == null ? void 0 : data.phase) === "end") {
+          return { type: "finish" };
+        }
+        if (data) {
+          if (payload.stream === "reasoning" || payload.stream === "think") {
+            if (data.delta) return { type: "reasoning", delta: data.delta };
+            if (data.text) return { type: "reasoning", delta: data.text };
+          }
+          if (data.delta) return { type: "content", delta: data.delta };
+          if (data.text) return { type: "content", delta: data.text };
+        }
+        if (payload.done === true || payload.finished === true) {
+          return { type: "finish" };
+        }
+      }
+      if (event === "chat") {
+        if (payload.state === "final") return { type: "finish" };
+        const content = (_c = payload.message) == null ? void 0 : _c.content;
+        if (typeof content === "string") return { type: "content", delta: content };
+        if (Array.isArray(content)) {
+          const text = content.filter((c) => c.type === "text").map((c) => c.text).join("");
+          if (text) return { type: "content", delta: text };
+        }
+      }
+      if (event === "Done" || payload.done === true) {
+        return { type: "finish" };
+      }
+      if (payload.search_results) {
+        return { type: "search_results", results: payload.search_results };
+      }
+      return null;
+    }
+  };
+
   // src/engine.js
   function todayDate() {
     return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -306,8 +645,11 @@ ${lines.join("\n")}
   function nowIso() {
     return (/* @__PURE__ */ new Date()).toISOString();
   }
+  function sanitizeFilenameTitle(text) {
+    return text.slice(0, 30).replace(/[\\/<>?:"|*\x00-\x1f]+/g, "_").replace(/\s+/g, " ").replace(/[. ]+$/, "").trim();
+  }
   function titleFromUserText(text) {
-    return text.slice(0, 20).replace(/\s+/g, " ").trim();
+    return sanitizeFilenameTitle(text);
   }
   function makeFrontmatter({ sessionId, model, thinking, search }) {
     const fm = {
@@ -320,18 +662,32 @@ ${lines.join("\n")}
     };
     return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
   }
-  function makeMeta({ turnId, userTextLen, model, usage }) {
+  function makeMeta({ turnId, userTextLen, model, usage, route }) {
     return {
       user_msg: String(userTextLen),
       ai_msg: String(turnId),
       model,
+      route: route || "local",
       tokens: usage ? String(usage.total_tokens) : "",
       time: nowIso()
     };
   }
   var SessionEngine = class {
-    constructor({ gatewayUrl, model, thinking, search, vaultIO, onEvent, tokenBudgetChars = 12e3 }) {
-      this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+    constructor({
+      gatewayUrl,
+      model,
+      thinking,
+      search,
+      vaultIO,
+      onEvent,
+      tokenBudgetChars = 12e3,
+      provider,
+      openclawUrl,
+      openclawToken,
+      clientId,
+      route = "local"
+    }) {
+      this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
       this.model = model;
       this.thinking = thinking;
       this.search = search;
@@ -342,6 +698,33 @@ ${lines.join("\n")}
       this.sessionPath = null;
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
       this.abortController = null;
+      this.route = route || "local";
+      this.provider = this._resolveProvider({
+        provider,
+        gatewayUrl,
+        openclawUrl,
+        openclawToken,
+        clientId
+      });
+    }
+    _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken, clientId }) {
+      if (provider && typeof provider === "object") {
+        return provider;
+      }
+      const name = provider || "openai-compat";
+      if (name === "openai-compat") {
+        return new OpenAICompatProvider({ gatewayUrl });
+      }
+      if (name === "openclaw") {
+        if (!openclawUrl) throw new Error("OpenClaw route requires openclawUrl");
+        if (!openclawToken) throw new Error("OpenClaw route requires openclawToken");
+        return new OpenClawProvider({
+          url: openclawUrl,
+          token: openclawToken,
+          clientId: clientId || "gateway-client"
+        });
+      }
+      throw new Error(`unknown provider: ${name}`);
     }
     abort() {
       var _a;
@@ -370,21 +753,14 @@ ${lines.join("\n")}
         await this.vaultIO.write(this.sessionPath, updated);
         this.onEvent({ type: "user-saved", path: this.sessionPath });
         const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
-        const payload = {
-          model: this.model,
+        const stream = this.provider.streamChat({
           messages,
-          stream: true
-        };
-        const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          model: this.model,
+          thinking: this.thinking,
+          search: this.search,
           signal: this.abortController.signal
         });
-        if (!response.ok) {
-          throw new Error(`gateway error ${response.status}: ${await response.text()}`);
-        }
-        const { md: completed } = await this._consumeStream(response, userTurn);
+        const { md: completed } = await this._consumeStream(stream, userTurn);
         await this.vaultIO.write(this.sessionPath, completed);
         const afterParse = parseSession(completed);
         const checkMessages = buildMessages(afterParse, { tokenBudgetChars: this.tokenBudgetChars });
@@ -406,10 +782,7 @@ ${lines.join("\n")}
         this.abortController = null;
       }
     }
-    async _consumeStream(response, turn) {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
+    async _consumeStream(stream, turn) {
       let baseMd = await this.vaultIO.read(this.sessionPath);
       const marker = `<!-- turn:${turn.id}`;
       const markerIdx = baseMd.indexOf(marker);
@@ -444,68 +817,33 @@ ${lines.join("\n")}
           await flush();
         }
       };
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop();
-        for (const line of lines) {
-          const result = this._processSseLine(line);
-          if (!result) continue;
-          if (result.type === "content") {
-            bodyBuffer += result.delta;
-            turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
-            this.onEvent({ type: "content-delta", delta: result.delta });
-            await maybeFlush();
-          } else if (result.type === "reasoning") {
-            thinkBuffer += result.delta;
-            turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
-            this.onEvent({ type: "think-delta", delta: result.delta });
-            await maybeFlush();
-          } else if (result.type === "search_results") {
-            searchResults = result.results;
-            turnState.searches = [this._toSearchEntry(result.results)];
-            this.onEvent({ type: "search-done", results: result.results.results });
-            await flush(true);
-          } else if (result.type === "finish") {
-            usage = result.usage;
-          }
+      for await (const result of stream) {
+        if (result.type === "content") {
+          bodyBuffer += result.delta;
+          turnState.bodyBlocks = bodyBuffer ? bodyBuffer.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) : [];
+          this.onEvent({ type: "content-delta", delta: result.delta });
+          await maybeFlush();
+        } else if (result.type === "reasoning") {
+          thinkBuffer += result.delta;
+          turnState.thinks = thinkBuffer ? [{ elapsedSecs: null, text: thinkBuffer }] : [];
+          this.onEvent({ type: "think-delta", delta: result.delta });
+          await maybeFlush();
+        } else if (result.type === "search_results") {
+          searchResults = result.results;
+          turnState.searches = [this._toSearchEntry(result.results)];
+          this.onEvent({ type: "search-done", results: result.results.results });
+          await flush(true);
+        } else if (result.type === "finish") {
+          usage = result.usage;
         }
       }
       await flush(true);
       const finalTurn = {
         ...turnState,
-        meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),
+        meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
         inProgress: false
       };
       return { md: prefix + serializeTurn(finalTurn) };
-    }
-    _processSseLine(line) {
-      var _a, _b, _c, _d, _e, _f;
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) return null;
-      const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") return { type: "done" };
-      try {
-        const chunk = JSON.parse(data);
-        const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
-        if (!delta) {
-          if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
-            return { type: "finish", usage: chunk.usage };
-          }
-          return null;
-        }
-        if (delta.content) return { type: "content", delta: delta.content };
-        if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
-        if (delta.search_results) return { type: "search_results", results: delta.search_results };
-        if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
-          return { type: "finish", usage: chunk.usage };
-        }
-        return null;
-      } catch (e) {
-        return null;
-      }
     }
     _toSearchEntry(bundle) {
       const queries = bundle.queries || [];
@@ -545,6 +883,7 @@ ${fm}
     }
     async _compact(md, parsed) {
       var _a, _b, _c, _d, _e, _f, _g, _h;
+      if (!this.gatewayUrl) return;
       const messages = buildMessages(parsed, { tokenBudgetChars: this.tokenBudgetChars });
       const prompt = SUMMARY_PROMPT + messages.map((m) => `${m.role}: ${m.content}`).join("\n\n");
       const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {

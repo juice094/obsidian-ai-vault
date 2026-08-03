@@ -1,0 +1,22 @@
+{
+  "openclawUrl": "http://100.69.11.71:18789",
+  "sessionPath": "AI 会话/2026-08-03 用一句话问候我。.md",
+  "meta": "<!-- turn:1 user_msg=8 ai_msg=1 model=openclaw/default route=openclaw tokens= time=2026-08-03T10:05:19.775Z -->",
+  "events": [
+    "user-saved",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "turn-done"
+  ],
+  "hasRouteMeta": true,
+  "ok": true,
+  "testedAt": "2026-08-03T10:05:19.775Z"
+}

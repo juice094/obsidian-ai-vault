@@ -11,6 +11,7 @@ import {
   TAbstractFile,
 } from 'obsidian';
 import { SessionEngine } from './src/engine.js';
+import { OpenAICompatProvider } from './src/openai-compat-provider.js';
 
 const VIEW_TYPE_AI_CHAT = 'ai-vault-chat-view';
 
@@ -33,12 +34,15 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   search: true,
   tokenBudgetChars: 12000,
   defaultRoute: 'local',
-  openclawUrl: 'ws://100.69.11.71:18789',
+  openclawUrl: 'http://100.69.11.71:18789',
   openclawToken: '',
   clientId: 'gateway-client',
 };
 
-function modelToGatewayModel(model: 'default' | 'expert'): string {
+function modelToGatewayModel(model: 'default' | 'expert', route: 'local' | 'openclaw'): string {
+  if (route === 'openclaw') {
+    return model === 'expert' ? 'openclaw/main' : 'openclaw/default';
+  }
   return model === 'expert' ? 'deepseek-reasoner' : 'deepseek-chat';
 }
 
@@ -252,18 +256,24 @@ class AiVaultChatView extends ItemView {
         throw new Error('OpenClaw 路由需要先在设置中填写 URL 和 Token');
       }
     }
+    const settings = this.plugin.settings;
+    const model = modelToGatewayModel(settings.model, route);
+    const provider = route === 'openclaw'
+      ? new OpenAICompatProvider({ gatewayUrl: settings.openclawUrl, apiKey: settings.openclawToken })
+      : routeToProvider(route);
+
     const engine = new SessionEngine({
-      gatewayUrl: this.plugin.settings.gatewayUrl,
-      model: modelToGatewayModel(this.plugin.settings.model),
-      thinking: this.plugin.settings.thinking,
-      search: this.plugin.settings.search,
+      gatewayUrl: settings.gatewayUrl,
+      model,
+      thinking: settings.thinking,
+      search: settings.search,
       vaultIO,
-      tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
-      provider: routeToProvider(route),
+      tokenBudgetChars: settings.tokenBudgetChars,
+      provider,
       route,
-      openclawUrl: this.plugin.settings.openclawUrl,
-      openclawToken: this.plugin.settings.openclawToken,
-      clientId: this.plugin.settings.clientId,
+      openclawUrl: settings.openclawUrl,
+      openclawToken: settings.openclawToken,
+      clientId: settings.clientId,
       onEvent: (e: import('./src/engine.js').EngineEvent) => {
         if (e.type === 'user-saved') {
           this.currentPath = e.path || null;
@@ -405,10 +415,10 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('OpenClaw URL')
-      .setDesc('OpenClaw agent WebSocket 端点')
+      .setDesc('OpenClaw HTTP root URL（例如 http://100.69.11.71:18789，不含 /v1）')
       .addText((text) =>
         text
-          .setPlaceholder('ws://100.69.11.71:18789')
+          .setPlaceholder('http://100.69.11.71:18789/v1')
           .setValue(this.plugin.settings.openclawUrl)
           .onChange(async (value) => {
             this.plugin.settings.openclawUrl = value;
@@ -418,7 +428,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('OpenClaw Token')
-      .setDesc('device token（从 claw-cred.txt 获取，仅保存在插件 data.json）')
+      .setDesc('shared-secret bearer token（从 claw-cred.txt 获取，仅保存在插件 data.json）')
       .addText((text) => {
         text.inputEl.type = 'password';
         text
@@ -432,7 +442,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('OpenClaw Client ID')
-      .setDesc('连接 OpenClaw 时使用的 client id')
+      .setDesc('保留字段，当前 HTTP 面不使用')
       .addText((text) =>
         text
           .setPlaceholder('gateway-client')
@@ -445,7 +455,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('模型')
-      .setDesc('default = deepseek-chat，expert = deepseek-reasoner（深度思考）')
+      .setDesc('本地：default=deepseek-chat / expert=deepseek-reasoner；OpenClaw：default=openclaw/default / expert=openclaw/main')
       .addDropdown((drop) =>
         drop
           .addOption('default', 'default')

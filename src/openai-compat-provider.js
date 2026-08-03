@@ -2,8 +2,9 @@
 // 行为与 engine.js 原硬编码实现逐事件等价。
 
 export class OpenAICompatProvider {
-  constructor({ gatewayUrl }) {
+  constructor({ gatewayUrl, apiKey }) {
     this.gatewayUrl = gatewayUrl.replace(/\/$/, '');
+    this.apiKey = apiKey || '';
   }
 
   async *streamChat({ messages, model, thinking, search, signal }) {
@@ -13,9 +14,12 @@ export class OpenAICompatProvider {
       stream: true,
     };
 
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
     const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal,
     });

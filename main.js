@@ -326,8 +326,9 @@ var SUMMARY_PROMPT = `\u8BF7\u628A\u4EE5\u4E0B AI \u4E0E\u7528\u6237\u7684\u591A
 
 // src/openai-compat-provider.js
 var OpenAICompatProvider = class {
-  constructor({ gatewayUrl }) {
+  constructor({ gatewayUrl, apiKey }) {
     this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+    this.apiKey = apiKey || "";
   }
   async *streamChat({ messages, model, thinking, search, signal }) {
     const payload = {
@@ -335,9 +336,11 @@ var OpenAICompatProvider = class {
       messages,
       stream: true
     };
+    const headers = { "Content-Type": "application/json" };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
     const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       signal
     });
@@ -976,11 +979,14 @@ var DEFAULT_SETTINGS = {
   search: true,
   tokenBudgetChars: 12e3,
   defaultRoute: "local",
-  openclawUrl: "ws://100.69.11.71:18789",
+  openclawUrl: "http://100.69.11.71:18789",
   openclawToken: "",
   clientId: "gateway-client"
 };
-function modelToGatewayModel(model) {
+function modelToGatewayModel(model, route) {
+  if (route === "openclaw") {
+    return model === "expert" ? "openclaw/main" : "openclaw/default";
+  }
   return model === "expert" ? "deepseek-reasoner" : "deepseek-chat";
 }
 function routeToProvider(route) {
@@ -1149,18 +1155,21 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
         throw new Error("OpenClaw \u8DEF\u7531\u9700\u8981\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 URL \u548C Token");
       }
     }
+    const settings = this.plugin.settings;
+    const model = modelToGatewayModel(settings.model, route);
+    const provider = route === "openclaw" ? new OpenAICompatProvider({ gatewayUrl: settings.openclawUrl, apiKey: settings.openclawToken }) : routeToProvider(route);
     const engine = new SessionEngine({
-      gatewayUrl: this.plugin.settings.gatewayUrl,
-      model: modelToGatewayModel(this.plugin.settings.model),
-      thinking: this.plugin.settings.thinking,
-      search: this.plugin.settings.search,
+      gatewayUrl: settings.gatewayUrl,
+      model,
+      thinking: settings.thinking,
+      search: settings.search,
       vaultIO,
-      tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
-      provider: routeToProvider(route),
+      tokenBudgetChars: settings.tokenBudgetChars,
+      provider,
       route,
-      openclawUrl: this.plugin.settings.openclawUrl,
-      openclawToken: this.plugin.settings.openclawToken,
-      clientId: this.plugin.settings.clientId,
+      openclawUrl: settings.openclawUrl,
+      openclawToken: settings.openclawToken,
+      clientId: settings.clientId,
       onEvent: (e) => {
         if (e.type === "user-saved") {
           this.currentPath = e.path || null;
@@ -1271,26 +1280,26 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("OpenClaw URL").setDesc("OpenClaw agent WebSocket \u7AEF\u70B9").addText(
-      (text) => text.setPlaceholder("ws://100.69.11.71:18789").setValue(this.plugin.settings.openclawUrl).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("OpenClaw URL").setDesc("OpenClaw HTTP root URL\uFF08\u4F8B\u5982 http://100.69.11.71:18789\uFF0C\u4E0D\u542B /v1\uFF09").addText(
+      (text) => text.setPlaceholder("http://100.69.11.71:18789/v1").setValue(this.plugin.settings.openclawUrl).onChange(async (value) => {
         this.plugin.settings.openclawUrl = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("OpenClaw Token").setDesc("device token\uFF08\u4ECE claw-cred.txt \u83B7\u53D6\uFF0C\u4EC5\u4FDD\u5B58\u5728\u63D2\u4EF6 data.json\uFF09").addText((text) => {
+    new import_obsidian.Setting(containerEl).setName("OpenClaw Token").setDesc("shared-secret bearer token\uFF08\u4ECE claw-cred.txt \u83B7\u53D6\uFF0C\u4EC5\u4FDD\u5B58\u5728\u63D2\u4EF6 data.json\uFF09").addText((text) => {
       text.inputEl.type = "password";
       text.setPlaceholder("").setValue(this.plugin.settings.openclawToken).onChange(async (value) => {
         this.plugin.settings.openclawToken = value;
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian.Setting(containerEl).setName("OpenClaw Client ID").setDesc("\u8FDE\u63A5 OpenClaw \u65F6\u4F7F\u7528\u7684 client id").addText(
+    new import_obsidian.Setting(containerEl).setName("OpenClaw Client ID").setDesc("\u4FDD\u7559\u5B57\u6BB5\uFF0C\u5F53\u524D HTTP \u9762\u4E0D\u4F7F\u7528").addText(
       (text) => text.setPlaceholder("gateway-client").setValue(this.plugin.settings.clientId).onChange(async (value) => {
         this.plugin.settings.clientId = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("\u6A21\u578B").setDesc("default = deepseek-chat\uFF0Cexpert = deepseek-reasoner\uFF08\u6DF1\u5EA6\u601D\u8003\uFF09").addDropdown(
+    new import_obsidian.Setting(containerEl).setName("\u6A21\u578B").setDesc("\u672C\u5730\uFF1Adefault=deepseek-chat / expert=deepseek-reasoner\uFF1BOpenClaw\uFF1Adefault=openclaw/default / expert=openclaw/main").addDropdown(
       (drop) => drop.addOption("default", "default").addOption("expert", "expert").setValue(this.plugin.settings.model).onChange(async (value) => {
         this.plugin.settings.model = value;
         await this.plugin.saveSettings();
