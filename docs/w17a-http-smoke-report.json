@@ -1,0 +1,26 @@
+{
+  "endpoint": "http://100.69.11.71:18789",
+  "testedUrl": "http://100.69.11.71:18789/v1/chat/completions",
+  "method": "POST",
+  "status": 404,
+  "contentType": "text/plain; charset=utf-8",
+  "errorBody": "Not Found",
+  "note": "GET /v1/chat/completions returns the OpenClaw dashboard HTML (200). POST to the same path returns 404. Several alternative paths were also tried and returned 404.",
+  "triedPaths": [
+    "/v1/chat/completions",
+    "/api/v1/chat/completions",
+    "/openclaw/v1/chat/completions",
+    "/openclaw/api/v1/chat/completions",
+    "/v1beta/chat/completions",
+    "/openai/v1/chat/completions",
+    "/ai/v1/chat/completions",
+    "/chat/completions",
+    "/v1/completions",
+    "/v1/chat"
+  ],
+  "hasAgentReply": false,
+  "hasStream": false,
+  "hasReasoning": false,
+  "hasSearch": false,
+  "testedAt": "2026-08-03T08:52:00.000Z"
+}
