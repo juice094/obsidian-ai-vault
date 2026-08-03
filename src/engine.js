@@ -11,8 +11,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function sanitizeFilenameTitle(text) {
+  // ponytail: 只处理最常见非法字符；不追求覆盖所有文件系统。
+  // 升级路径：需要跨平台严格校验时引入 filename-sanitized 库。
+  return text
+    .slice(0, 30)
+    .replace(/[\\/<>?:"|*\x00-\x1f]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/, '')
+    .trim();
+}
+
 function titleFromUserText(text) {
-  return text.slice(0, 20).replace(/\s+/g, ' ').trim();
+  return sanitizeFilenameTitle(text);
 }
 
 function makeFrontmatter({ sessionId, model, thinking, search }) {

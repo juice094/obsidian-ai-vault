@@ -670,8 +670,11 @@ function todayDate() {
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
+function sanitizeFilenameTitle(text) {
+  return text.slice(0, 30).replace(/[\\/<>?:"|*\x00-\x1f]+/g, "_").replace(/\s+/g, " ").replace(/[. ]+$/, "").trim();
+}
 function titleFromUserText(text) {
-  return text.slice(0, 20).replace(/\s+/g, " ").trim();
+  return sanitizeFilenameTitle(text);
 }
 function makeFrontmatter({ sessionId, model, thinking, search }) {
   const fm = {

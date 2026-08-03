@@ -100,6 +100,37 @@ describe('SessionEngine', () => {
     }
   });
 
+  it('sanitizes illegal filename characters from the session title', async () => {
+    const vaultIO = makeVaultIO();
+    const { server, url } = await startMockServer((req, res) => {
+      req.on('data', () => {});
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(mockSseStream());
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+      });
+      const userText = '执行出错 程序异常退出, 请检查代码"是';
+      await engine.send(userText);
+
+      assert.ok(engine.sessionPath.startsWith('AI 会话/'));
+      assert.ok(engine.sessionPath.endsWith('.md'));
+      assert.ok(!engine.sessionPath.includes('"'));
+      assert.ok(!/[<>:"|?*\\\x00-\x1f]/.test(engine.sessionPath));
+      assert.ok(vaultIO._files.has(engine.sessionPath));
+    } finally {
+      server.close();
+    }
+  });
+
   it('continues an existing session', async () => {
     const vaultIO = makeVaultIO();
     const { server, url } = await startMockServer((req, res) => {
