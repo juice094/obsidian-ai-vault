@@ -50,6 +50,10 @@ export interface SessionEngineOptions {
   openclawUrl?: string;
   /** OpenClaw admin token。 */
   openclawToken?: string;
+  /** OpenClaw client id（默认 gateway-client）。 */
+  clientId?: string;
+  /** 路由标记：'local' = 本地/内嵌 DeepSeek gateway；'openclaw' = 远程 OpenClaw agent。写入 turn meta。 */
+  route?: 'local' | 'openclaw';
 }
 
 export class SessionEngine {

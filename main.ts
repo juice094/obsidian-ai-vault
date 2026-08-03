@@ -20,6 +20,10 @@ interface AiVaultChatSettings {
   thinking: boolean;
   search: boolean;
   tokenBudgetChars: number;
+  defaultRoute: 'local' | 'openclaw';
+  openclawUrl: string;
+  openclawToken: string;
+  clientId: string;
 }
 
 const DEFAULT_SETTINGS: AiVaultChatSettings = {
@@ -28,10 +32,18 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   thinking: false,
   search: true,
   tokenBudgetChars: 12000,
+  defaultRoute: 'local',
+  openclawUrl: 'ws://100.69.11.71:18789',
+  openclawToken: '',
+  clientId: 'gateway-client',
 };
 
 function modelToGatewayModel(model: 'default' | 'expert'): string {
   return model === 'expert' ? 'deepseek-reasoner' : 'deepseek-chat';
+}
+
+function routeToProvider(route: 'local' | 'openclaw'): 'openai-compat' | 'openclaw' {
+  return route === 'openclaw' ? 'openclaw' : 'openai-compat';
 }
 
 // ponytail: vaultIO 直接复用 Obsidian adapter，不做额外缓存或抽象。
@@ -70,13 +82,17 @@ class AiVaultChatView extends ItemView {
   private contextToggleEl!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
   private statusEl!: HTMLElement;
+  private routeSelectEl!: HTMLSelectElement;
+  private routeBadgeEl!: HTMLElement;
   private engine: SessionEngine | null = null;
   private currentPath: string | null = null;
   private isStreaming = false;
+  private currentRoute: 'local' | 'openclaw';
 
   constructor(leaf: WorkspaceLeaf, plugin: AiVaultChatPlugin) {
     super(leaf);
     this.plugin = plugin;
+    this.currentRoute = plugin.settings.defaultRoute;
   }
 
   getViewType(): string {
@@ -120,6 +136,20 @@ class AiVaultChatView extends ItemView {
     toolbar.createEl('label', { cls: 'ai-vault-chat-context-label' }, (label) => {
       this.contextToggleEl = label.createEl('input', { type: 'checkbox' });
       label.appendText(' 当前笔记作上下文');
+    });
+
+    // 路由切换
+    toolbar.createEl('div', { cls: 'ai-vault-chat-route' }, (routeWrap) => {
+      routeWrap.createEl('span', { text: '路由：', cls: 'ai-vault-chat-route-label' });
+      this.routeSelectEl = routeWrap.createEl('select', { cls: 'ai-vault-chat-route-select' });
+      this.routeSelectEl.createEl('option', { text: '本地', value: 'local' });
+      this.routeSelectEl.createEl('option', { text: 'OpenClaw', value: 'openclaw' });
+      this.routeSelectEl.value = this.currentRoute;
+      this.routeSelectEl.addEventListener('change', () => this.onRouteChange());
+      this.routeBadgeEl = routeWrap.createEl('span', {
+        cls: 'ai-vault-chat-route-badge',
+        text: this.routeBadgeText(this.currentRoute),
+      });
     });
 
     // 会话列表
@@ -198,8 +228,30 @@ class AiVaultChatView extends ItemView {
     this.setStatus('已标记中断');
   }
 
+  private routeBadgeText(route: 'local' | 'openclaw'): string {
+    return route === 'openclaw' ? 'OpenClaw' : '本地';
+  }
+
+  private onRouteChange() {
+    const route = this.routeSelectEl.value as 'local' | 'openclaw';
+    if (route === this.currentRoute) return;
+    this.currentRoute = route;
+    this.routeBadgeEl.textContent = this.routeBadgeText(route);
+    // 下一条发送使用新路由；已存在的 engine 保留旧路由，下次发送时重建
+    if (!this.isStreaming) {
+      this.engine = null;
+    }
+    this.setStatus(`已切换到 ${this.routeBadgeText(route)} 路由`);
+  }
+
   private createEngine(sessionPath: string | null): SessionEngine {
     const vaultIO = makeVaultIO(this.app.vault.adapter);
+    const route = this.currentRoute;
+    if (route === 'openclaw') {
+      if (!this.plugin.settings.openclawUrl || !this.plugin.settings.openclawToken) {
+        throw new Error('OpenClaw 路由需要先在设置中填写 URL 和 Token');
+      }
+    }
     const engine = new SessionEngine({
       gatewayUrl: this.plugin.settings.gatewayUrl,
       model: modelToGatewayModel(this.plugin.settings.model),
@@ -207,6 +259,11 @@ class AiVaultChatView extends ItemView {
       search: this.plugin.settings.search,
       vaultIO,
       tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
+      provider: routeToProvider(route),
+      route,
+      openclawUrl: this.plugin.settings.openclawUrl,
+      openclawToken: this.plugin.settings.openclawToken,
+      clientId: this.plugin.settings.clientId,
       onEvent: (e: import('./src/engine.js').EngineEvent) => {
         if (e.type === 'user-saved') {
           this.currentPath = e.path || null;
@@ -315,13 +372,73 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Gateway URL')
-      .setDesc('本地 deepseek-device-skill 服务地址')
+      .setDesc('本地 deepseek-device-skill 服务地址（本地路由使用）')
       .addText((text) =>
         text
           .setPlaceholder('http://127.0.0.1:18791')
           .setValue(this.plugin.settings.gatewayUrl)
           .onChange(async (value) => {
             this.plugin.settings.gatewayUrl = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    containerEl.createEl('h3', { text: '模型路由' });
+    containerEl.createEl('p', {
+      text: '选择本会话的模型提供商。本地 = 内嵌/本机 DeepSeek gateway；远程 = OpenClaw agent（需先配对 device token）。',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(containerEl)
+      .setName('默认路由')
+      .setDesc('新建会话的默认路由')
+      .addDropdown((drop) =>
+        drop
+          .addOption('local', '本地（内嵌 DeepSeek gateway）')
+          .addOption('openclaw', 'OpenClaw（远程 agent）')
+          .setValue(this.plugin.settings.defaultRoute)
+          .onChange(async (value) => {
+            this.plugin.settings.defaultRoute = value as 'local' | 'openclaw';
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('OpenClaw URL')
+      .setDesc('OpenClaw agent WebSocket 端点')
+      .addText((text) =>
+        text
+          .setPlaceholder('ws://100.69.11.71:18789')
+          .setValue(this.plugin.settings.openclawUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.openclawUrl = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('OpenClaw Token')
+      .setDesc('device token（从 claw-cred.txt 获取，仅保存在插件 data.json）')
+      .addText((text) => {
+        text.inputEl.type = 'password';
+        text
+          .setPlaceholder('')
+          .setValue(this.plugin.settings.openclawToken)
+          .onChange(async (value) => {
+            this.plugin.settings.openclawToken = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('OpenClaw Client ID')
+      .setDesc('连接 OpenClaw 时使用的 client id')
+      .addText((text) =>
+        text
+          .setPlaceholder('gateway-client')
+          .setValue(this.plugin.settings.clientId)
+          .onChange(async (value) => {
+            this.plugin.settings.clientId = value;
             await this.plugin.saveSettings();
           })
       );

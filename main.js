@@ -392,23 +392,26 @@ var OpenAICompatProvider = class {
 };
 
 // src/openclaw-provider.js
-var DEFAULT_CLIENT_ID = "gateway-client";
+var DEFAULT_CLIENT_ID = "cli";
 var DEFAULT_SESSION_KEY = "agent:main:main";
+var DEFAULT_SCOPES = ["operator.read", "operator.write"];
 var OpenClawProvider = class {
   constructor({
     url,
     token,
     clientId = DEFAULT_CLIENT_ID,
-    sessionKey = DEFAULT_SESSION_KEY
+    sessionKey = DEFAULT_SESSION_KEY,
+    simpleConnect = false
   }) {
     if (!token) throw new Error("OpenClaw token required");
     this.url = url;
     this.token = token;
     this.clientId = clientId;
     this.sessionKey = sessionKey;
+    this.simpleConnect = simpleConnect;
   }
   async *streamChat({ messages, model, thinking, search, signal }) {
-    var _a, _b, _c;
+    var _a, _b;
     if (signal == null ? void 0 : signal.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
@@ -460,6 +463,11 @@ var OpenClawProvider = class {
     ws.addEventListener("message", onMessage);
     ws.addEventListener("error", onError);
     ws.addEventListener("close", onClose);
+    if (this.simpleConnect) {
+      ws.addEventListener("open", () => {
+        send({ type: "connect", token });
+      });
+    }
     const abortHandler = () => {
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close(1e3, "abort");
@@ -499,44 +507,44 @@ var OpenClawProvider = class {
       return ((_a2 = messages[messages.length - 1]) == null ? void 0 : _a2.content) || "";
     };
     try {
-      while (true) {
-        const msg = await nextEvent();
-        if (!msg) throw new Error("OpenClaw connection closed before challenge");
-        const { parsed } = msg;
-        if (parsed.type === "event" && parsed.event === "connect.challenge") {
-          const connectReqId = randId();
-          send({
-            type: "req",
-            id: connectReqId,
-            method: "connect",
-            params: {
-              minProtocol: 3,
-              maxProtocol: 3,
-              client: {
-                id: this.clientId,
-                version: "0.0.1",
-                platform: "obsidian-ai-vault",
-                mode: "cli"
-              },
-              role: "operator",
-              scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
-              auth: { token },
-              caps: []
-            }
-          });
-          break;
+      if (!this.simpleConnect) {
+        while (true) {
+          const msg = await nextEvent();
+          if (!msg) throw new Error("OpenClaw connection closed before challenge");
+          const { parsed } = msg;
+          if (parsed.type === "event" && parsed.event === "connect.challenge") {
+            const connectReqId = randId();
+            send({
+              type: "req",
+              id: connectReqId,
+              method: "connect",
+              params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                client: {
+                  id: this.clientId,
+                  version: "1.0.0",
+                  platform: "linux",
+                  mode: "cli"
+                },
+                role: "operator",
+                scopes: DEFAULT_SCOPES,
+                auth: { token },
+                caps: []
+              }
+            });
+            break;
+          }
         }
       }
       while (true) {
         const msg = await nextEvent();
         if (!msg) throw new Error("OpenClaw connection closed before hello-ok");
         const { parsed } = msg;
-        if (parsed.type === "res") {
-          if (!parsed.ok) {
-            throw new Error(`OpenClaw connect failed: ${((_a = parsed.error) == null ? void 0 : _a.message) || "unknown"}`);
-          }
-          if (((_b = parsed.payload) == null ? void 0 : _b.type) === "hello-ok") break;
+        if (this._isConnectError(parsed)) {
+          throw new Error(`OpenClaw connect failed: ${((_a = parsed.error) == null ? void 0 : _a.message) || parsed.message || "unknown"}`);
         }
+        if (this._isHelloOk(parsed)) break;
       }
       const chatReqId = randId();
       send({
@@ -544,9 +552,9 @@ var OpenClawProvider = class {
         id: chatReqId,
         method: "chat.send",
         params: {
+          idempotencyKey: randId(),
           sessionKey: this.sessionKey,
-          message: [{ type: "text", text: lastUserContent() }],
-          stream: true
+          message: lastUserContent()
         }
       });
       let finished = false;
@@ -556,7 +564,7 @@ var OpenClawProvider = class {
         const { parsed } = msg;
         if (parsed.type === "res" && parsed.id === chatReqId) {
           if (!parsed.ok) {
-            throw new Error(`OpenClaw chat.send failed: ${((_c = parsed.error) == null ? void 0 : _c.message) || "unknown"}`);
+            throw new Error(`OpenClaw chat.send failed: ${((_b = parsed.error) == null ? void 0 : _b.message) || "unknown"}`);
           }
           continue;
         }
@@ -573,8 +581,25 @@ var OpenClawProvider = class {
       }
     }
   }
+  _isHelloOk(parsed) {
+    var _a;
+    if (!parsed || typeof parsed !== "object") return false;
+    if (parsed.type === "res" && parsed.ok && ((_a = parsed.payload) == null ? void 0 : _a.type) === "hello-ok") return true;
+    if (this.simpleConnect) {
+      if (parsed.type === "hello-ok" || parsed.type === "connected") return true;
+      if (parsed.event === "hello-ok" || parsed.event === "connected") return true;
+      if (parsed.type === "res" && parsed.ok) return true;
+    }
+    return false;
+  }
+  _isConnectError(parsed) {
+    if (!parsed || typeof parsed !== "object") return false;
+    if (parsed.type === "res" && parsed.ok === false) return true;
+    if (this.simpleConnect && (parsed.type === "error" || parsed.error)) return true;
+    return false;
+  }
   _mapEvent(parsed) {
-    var _a, _b;
+    var _a, _b, _c;
     const event = parsed.event;
     const payload = parsed.payload;
     if (!payload) return null;
@@ -601,6 +626,32 @@ var OpenClawProvider = class {
       }
       if (payload.reasoning) return { type: "reasoning", delta: payload.reasoning };
       if ((_b = payload.message) == null ? void 0 : _b.content) return { type: "reasoning", delta: payload.message.content };
+    }
+    if (event === "agent") {
+      const data = payload.data;
+      if (payload.stream === "lifecycle" && (data == null ? void 0 : data.phase) === "end") {
+        return { type: "finish" };
+      }
+      if (data) {
+        if (payload.stream === "reasoning" || payload.stream === "think") {
+          if (data.delta) return { type: "reasoning", delta: data.delta };
+          if (data.text) return { type: "reasoning", delta: data.text };
+        }
+        if (data.delta) return { type: "content", delta: data.delta };
+        if (data.text) return { type: "content", delta: data.text };
+      }
+      if (payload.done === true || payload.finished === true) {
+        return { type: "finish" };
+      }
+    }
+    if (event === "chat") {
+      if (payload.state === "final") return { type: "finish" };
+      const content = (_c = payload.message) == null ? void 0 : _c.content;
+      if (typeof content === "string") return { type: "content", delta: content };
+      if (Array.isArray(content)) {
+        const text = content.filter((c) => c.type === "text").map((c) => c.text).join("");
+        if (text) return { type: "content", delta: text };
+      }
     }
     if (event === "Done" || payload.done === true) {
       return { type: "finish" };
@@ -633,11 +684,12 @@ function makeFrontmatter({ sessionId, model, thinking, search }) {
   };
   return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
-function makeMeta({ turnId, userTextLen, model, usage }) {
+function makeMeta({ turnId, userTextLen, model, usage, route }) {
   return {
     user_msg: String(userTextLen),
     ai_msg: String(turnId),
     model,
+    route: route || "local",
     tokens: usage ? String(usage.total_tokens) : "",
     time: nowIso()
   };
@@ -653,7 +705,9 @@ var SessionEngine = class {
     tokenBudgetChars = 12e3,
     provider,
     openclawUrl,
-    openclawToken
+    openclawToken,
+    clientId,
+    route = "local"
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
     this.model = model;
@@ -666,14 +720,16 @@ var SessionEngine = class {
     this.sessionPath = null;
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
+    this.route = route || "local";
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
       openclawUrl,
-      openclawToken
+      openclawToken,
+      clientId
     });
   }
-  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken }) {
+  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken, clientId }) {
     if (provider && typeof provider === "object") {
       return provider;
     }
@@ -682,9 +738,12 @@ var SessionEngine = class {
       return new OpenAICompatProvider({ gatewayUrl });
     }
     if (name === "openclaw") {
+      if (!openclawUrl) throw new Error("OpenClaw route requires openclawUrl");
+      if (!openclawToken) throw new Error("OpenClaw route requires openclawToken");
       return new OpenClawProvider({
         url: openclawUrl,
-        token: openclawToken
+        token: openclawToken,
+        clientId: clientId || "gateway-client"
       });
     }
     throw new Error(`unknown provider: ${name}`);
@@ -803,7 +862,7 @@ var SessionEngine = class {
     await flush(true);
     const finalTurn = {
       ...turnState,
-      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),
+      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
       inProgress: false
     };
     return { md: prefix + serializeTurn(finalTurn) };
@@ -912,10 +971,17 @@ var DEFAULT_SETTINGS = {
   model: "default",
   thinking: false,
   search: true,
-  tokenBudgetChars: 12e3
+  tokenBudgetChars: 12e3,
+  defaultRoute: "local",
+  openclawUrl: "ws://100.69.11.71:18789",
+  openclawToken: "",
+  clientId: "gateway-client"
 };
 function modelToGatewayModel(model) {
   return model === "expert" ? "deepseek-reasoner" : "deepseek-chat";
+}
+function routeToProvider(route) {
+  return route === "openclaw" ? "openclaw" : "openai-compat";
 }
 function makeVaultIO(adapter) {
   return {
@@ -950,6 +1016,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     this.isStreaming = false;
     this.renderTimer = null;
     this.plugin = plugin;
+    this.currentRoute = plugin.settings.defaultRoute;
   }
   getViewType() {
     return VIEW_TYPE_AI_CHAT;
@@ -985,6 +1052,18 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     toolbar.createEl("label", { cls: "ai-vault-chat-context-label" }, (label) => {
       this.contextToggleEl = label.createEl("input", { type: "checkbox" });
       label.appendText(" \u5F53\u524D\u7B14\u8BB0\u4F5C\u4E0A\u4E0B\u6587");
+    });
+    toolbar.createEl("div", { cls: "ai-vault-chat-route" }, (routeWrap) => {
+      routeWrap.createEl("span", { text: "\u8DEF\u7531\uFF1A", cls: "ai-vault-chat-route-label" });
+      this.routeSelectEl = routeWrap.createEl("select", { cls: "ai-vault-chat-route-select" });
+      this.routeSelectEl.createEl("option", { text: "\u672C\u5730", value: "local" });
+      this.routeSelectEl.createEl("option", { text: "OpenClaw", value: "openclaw" });
+      this.routeSelectEl.value = this.currentRoute;
+      this.routeSelectEl.addEventListener("change", () => this.onRouteChange());
+      this.routeBadgeEl = routeWrap.createEl("span", {
+        cls: "ai-vault-chat-route-badge",
+        text: this.routeBadgeText(this.currentRoute)
+      });
     });
     this.sessionListEl = this.rootEl.createDiv({ cls: "ai-vault-chat-sessions" });
     this.messagesEl = this.rootEl.createDiv({ cls: "ai-vault-chat-messages" });
@@ -1046,8 +1125,27 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     await this.renderMessages();
     this.setStatus("\u5DF2\u6807\u8BB0\u4E2D\u65AD");
   }
+  routeBadgeText(route) {
+    return route === "openclaw" ? "OpenClaw" : "\u672C\u5730";
+  }
+  onRouteChange() {
+    const route = this.routeSelectEl.value;
+    if (route === this.currentRoute) return;
+    this.currentRoute = route;
+    this.routeBadgeEl.textContent = this.routeBadgeText(route);
+    if (!this.isStreaming) {
+      this.engine = null;
+    }
+    this.setStatus(`\u5DF2\u5207\u6362\u5230 ${this.routeBadgeText(route)} \u8DEF\u7531`);
+  }
   createEngine(sessionPath) {
     const vaultIO = makeVaultIO(this.app.vault.adapter);
+    const route = this.currentRoute;
+    if (route === "openclaw") {
+      if (!this.plugin.settings.openclawUrl || !this.plugin.settings.openclawToken) {
+        throw new Error("OpenClaw \u8DEF\u7531\u9700\u8981\u5148\u5728\u8BBE\u7F6E\u4E2D\u586B\u5199 URL \u548C Token");
+      }
+    }
     const engine = new SessionEngine({
       gatewayUrl: this.plugin.settings.gatewayUrl,
       model: modelToGatewayModel(this.plugin.settings.model),
@@ -1055,6 +1153,11 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
       search: this.plugin.settings.search,
       vaultIO,
       tokenBudgetChars: this.plugin.settings.tokenBudgetChars,
+      provider: routeToProvider(route),
+      route,
+      openclawUrl: this.plugin.settings.openclawUrl,
+      openclawToken: this.plugin.settings.openclawToken,
+      clientId: this.plugin.settings.clientId,
       onEvent: (e) => {
         if (e.type === "user-saved") {
           this.currentPath = e.path || null;
@@ -1148,9 +1251,39 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "AI Vault Chat \u8BBE\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("Gateway URL").setDesc("\u672C\u5730 deepseek-device-skill \u670D\u52A1\u5730\u5740").addText(
+    new import_obsidian.Setting(containerEl).setName("Gateway URL").setDesc("\u672C\u5730 deepseek-device-skill \u670D\u52A1\u5730\u5740\uFF08\u672C\u5730\u8DEF\u7531\u4F7F\u7528\uFF09").addText(
       (text) => text.setPlaceholder("http://127.0.0.1:18791").setValue(this.plugin.settings.gatewayUrl).onChange(async (value) => {
         this.plugin.settings.gatewayUrl = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    containerEl.createEl("h3", { text: "\u6A21\u578B\u8DEF\u7531" });
+    containerEl.createEl("p", {
+      text: "\u9009\u62E9\u672C\u4F1A\u8BDD\u7684\u6A21\u578B\u63D0\u4F9B\u5546\u3002\u672C\u5730 = \u5185\u5D4C/\u672C\u673A DeepSeek gateway\uFF1B\u8FDC\u7A0B = OpenClaw agent\uFF08\u9700\u5148\u914D\u5BF9 device token\uFF09\u3002",
+      cls: "setting-item-description"
+    });
+    new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u8DEF\u7531").setDesc("\u65B0\u5EFA\u4F1A\u8BDD\u7684\u9ED8\u8BA4\u8DEF\u7531").addDropdown(
+      (drop) => drop.addOption("local", "\u672C\u5730\uFF08\u5185\u5D4C DeepSeek gateway\uFF09").addOption("openclaw", "OpenClaw\uFF08\u8FDC\u7A0B agent\uFF09").setValue(this.plugin.settings.defaultRoute).onChange(async (value) => {
+        this.plugin.settings.defaultRoute = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("OpenClaw URL").setDesc("OpenClaw agent WebSocket \u7AEF\u70B9").addText(
+      (text) => text.setPlaceholder("ws://100.69.11.71:18789").setValue(this.plugin.settings.openclawUrl).onChange(async (value) => {
+        this.plugin.settings.openclawUrl = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("OpenClaw Token").setDesc("device token\uFF08\u4ECE claw-cred.txt \u83B7\u53D6\uFF0C\u4EC5\u4FDD\u5B58\u5728\u63D2\u4EF6 data.json\uFF09").addText((text) => {
+      text.inputEl.type = "password";
+      text.setPlaceholder("").setValue(this.plugin.settings.openclawToken).onChange(async (value) => {
+        this.plugin.settings.openclawToken = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian.Setting(containerEl).setName("OpenClaw Client ID").setDesc("\u8FDE\u63A5 OpenClaw \u65F6\u4F7F\u7528\u7684 client id").addText(
+      (text) => text.setPlaceholder("gateway-client").setValue(this.plugin.settings.clientId).onChange(async (value) => {
+        this.plugin.settings.clientId = value;
         await this.plugin.saveSettings();
       })
     );

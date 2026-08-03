@@ -27,11 +27,12 @@ function makeFrontmatter({ sessionId, model, thinking, search }) {
   return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join('\n');
 }
 
-function makeMeta({ turnId, userTextLen, model, usage }) {
+function makeMeta({ turnId, userTextLen, model, usage, route }) {
   return {
     user_msg: String(userTextLen),
     ai_msg: String(turnId),
     model,
+    route: route || 'local',
     tokens: usage ? String(usage.total_tokens) : '',
     time: nowIso(),
   };
@@ -49,6 +50,8 @@ export class SessionEngine {
     provider,
     openclawUrl,
     openclawToken,
+    clientId,
+    route = 'local',
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, '') : '';
     this.model = model;
@@ -60,15 +63,17 @@ export class SessionEngine {
     this.sessionPath = null;
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
+    this.route = route || 'local';
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
       openclawUrl,
       openclawToken,
+      clientId,
     });
   }
 
-  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken }) {
+  _resolveProvider({ provider, gatewayUrl, openclawUrl, openclawToken, clientId }) {
     if (provider && typeof provider === 'object') {
       return provider;
     }
@@ -77,9 +82,12 @@ export class SessionEngine {
       return new OpenAICompatProvider({ gatewayUrl });
     }
     if (name === 'openclaw') {
+      if (!openclawUrl) throw new Error('OpenClaw route requires openclawUrl');
+      if (!openclawToken) throw new Error('OpenClaw route requires openclawToken');
       return new OpenClawProvider({
         url: openclawUrl,
         token: openclawToken,
+        clientId: clientId || 'gateway-client',
       });
     }
     throw new Error(`unknown provider: ${name}`);
@@ -217,7 +225,7 @@ export class SessionEngine {
 
     const finalTurn = {
       ...turnState,
-      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage }),
+      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
       inProgress: false,
     };
     return { md: prefix + serializeTurn(finalTurn) };

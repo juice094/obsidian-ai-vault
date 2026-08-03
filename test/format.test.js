@@ -18,7 +18,7 @@ created: 2026-07-28T14:00:11+08:00
 
 ---
 
-<!-- turn:7 user_msg=41 ai_msg=42 model=expert tokens=1832 time=2026-07-28T14:03:22+08:00 -->
+<!-- turn:7 user_msg=41 ai_msg=42 model=expert route=local tokens=1832 time=2026-07-28T14:03:22+08:00 -->
 > [!user]
 > 搜索一下 syncthing 冲突文件的最新处理方案，给我一个对比
 
@@ -81,6 +81,21 @@ describe('parseSession', () => {
     assert.equal(turn.meta.user_msg, '41');
     assert.equal(turn.meta.ai_msg, '42');
     assert.equal(turn.meta.model, 'expert');
+    assert.equal(turn.meta.route, 'local');
+  });
+
+  it('parses route meta for openclaw', () => {
+    const md = `<!-- turn:1 user_msg=1 ai_msg=2 route=openclaw -->
+> [!user]
+> hello
+
+<!-- ai:begin id=2 -->
+ok
+<!-- ai:end -->
+`;
+    const parsed = parseSession(md);
+    assert.equal(parsed.turns.length, 1);
+    assert.equal(parsed.turns[0].meta.route, 'openclaw');
   });
 
   it('marks a turn without ai:end as inProgress', () => {
@@ -110,13 +125,14 @@ describe('serializeTurn / appendTurn roundtrip', () => {
         results: [{ index: 1, title: 'T', url: 'https://x', site: 'x' }],
       }],
       bodyBlocks: ['body paragraph'],
-      meta: { user_msg: '10', ai_msg: '11', model: 'expert' },
+      meta: { user_msg: '10', ai_msg: '11', model: 'expert', route: 'openclaw' },
       inProgress: false,
       aiBeginId: 11,
     };
 
     const initial = serializeTurn(turn);
     assert.ok(initial.includes('<!-- turn:8'));
+    assert.ok(initial.includes('route=openclaw'));
     assert.ok(initial.includes('> [!think]- 已思考 · 5 秒'));
     assert.ok(initial.includes('<!-- ai:end -->'));
 
@@ -127,6 +143,7 @@ describe('serializeTurn / appendTurn roundtrip', () => {
     assert.equal(parsed.turns[0].userText, 'roundtrip test');
     assert.equal(parsed.turns[0].bodyBlocks[0], 'body paragraph');
     assert.equal(parsed.turns[0].searches[0].results[0].title, 'T');
+    assert.equal(parsed.turns[0].meta.route, 'openclaw');
   });
 });
 
