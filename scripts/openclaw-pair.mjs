@@ -222,7 +222,8 @@ async function requestPairing() {
 
   try {
     const features = helloOk.payload?.features || {};
-    const canAutoApprove = (features.methods || []).includes('node.pair.approve');
+    // R4b path A：必须由 VPS 宿主执行 `openclaw nodes approve <requestId>`，客户端不自动批准。
+    const canAutoApprove = false;
 
     const { publicKeyB64, privateKeyB64, keyPair } = await generateEd25519Key();
     const nonce = challenge.payload?.nonce || randomUUID();

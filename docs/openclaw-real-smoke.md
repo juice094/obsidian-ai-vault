@@ -307,10 +307,45 @@ admin connect 请求（token 已打码）：
 
 两者根因相同：Gray-Cloud gateway 对 shared-secret admin token 在 WebSocket 面**不授予任何 operator scope**。
 
+---
+
+## 追加：路径 A（宿主 CLI 手动批准）尝试（2026-08-03）
+
+按 Gray-Cloud 提供的三个事实与指挥层定案，尝试路径 A：
+
+1. `scripts/openclaw-pair.mjs` 强制 `canAutoApprove = false`，确保客户端不会自动调用 `node.pair.approve`；
+2. 脚本 WS connect(admin token) → 发 `node.pair.request` → 等待宿主 CLI 批准。
+
+### 执行结果
+
+**仍被 `node.pair.request` 本身拒绝，未进入 pending/批准阶段。**
+
+- `node.pair.request` 响应：
+  ```json
+  { "type": "res", "ok": false, "error": { "code": "INVALID_REQUEST", "message": "missing scope: operator.pairing" } }
+  ```
+- 服务端 `hello-ok` 未返回 `auth.scopes`；但从 `node.pair.request` 的错误可反推：当前 admin token 在 WebSocket 面的有效 scope 只有 `operator.read`/`operator.write`，**不包含 `operator.pairing`**。
+- 服务端 `features.methods` 已包含 `node.pair.request`、`node.pair.approve`、`node.pair.list`，说明 pairing 接口存在，只是当前 token 没有调用权限。
+
+### 定案偏差
+
+路径 A 成立的前提是 admin token 能在 WebSocket 面发起 `node.pair.request`。实测该 admin token 连 pairing 请求权限都没有，因此：
+
+- `openclaw nodes pending` 在宿主端看不到任何 pending 请求（请求根本没创建成功）；
+- 宿主 CLI `openclaw nodes approve <requestId>` 也无请求可批。
+
+### 结论
+
+**R4b 仍阻塞。** 需要服务端为当前 admin token 追加 `operator.pairing` scope，或提供另一个已带 `operator.pairing`（以及 `operator.write`）的 admin token/节点凭证。
+
+在凭证更新前，客户端侧没有可继续的安全路径：
+- 自动批准被服务端白名单/scope 双重挡住；
+- 宿主 CLI 批准无 pending 请求可批；
+- 安全降级方案（`auth.mode none`、`nodes.allowCommands`）已被指挥层明确拒绝。
+
 ## 下一步建议
 
-1. **服务端确认**：shared-secret token 在 WebSocket 面是否本应被授予 operator scopes；
-2. **HTTP 面替代**：若 WebSocket 面确实不授 scope，是否应通过 HTTP API（决策文档提及 HTTP 面有完整 scope）完成配对，再拿 device token 回 WebSocket 聊天；
-3. **凭证升级**：是否需提供另一种 admin token（已带 `operator.admin`/`operator.pairing`）或 OAuth/节点凭证；
-4. **agent 事件**：权限解决后，确认 `agent` 事件是否就是真实 chat 的流式响应格式，并在 provider 中保留已新增的映射；
-5. 拿到有效 device token 后，重跑 `node scripts/openclaw-pair.mjs ws://100.69.11.71:18789` 完成 R4b 验收。
+1. **服务端为 admin token 追加 `operator.pairing` scope**：这是路径 A 成立的最低要求；
+2. 或**提供已带 `operator.pairing` + `operator.write` 的新 admin token/节点凭证**；
+3. 权限解决后重跑 `node scripts/openclaw-pair.mjs ws://100.69.11.71:18789`，脚本会在 `node.pair.request` 成功后挂起等待宿主 CLI 批准；
+4. `agent` 事件映射已保留在 `src/openclaw-provider.js` 中，权限解决后无需再改 provider 代码。
