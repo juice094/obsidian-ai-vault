@@ -58,6 +58,10 @@ export interface SessionEngineOptions {
   sessionKey?: string;
   /** 对侧 agent 标识，用于 x-openclaw-agent-id header。 */
   agentId?: string;
+  /** 对侧代理身份：main = 格雷；device = device。仅影响显示与 turn meta。 */
+  peerAgent?: 'main' | 'device';
+  /** 会话入口：note = 每个 md 隔离；main = 挂接格雷主会话（key = agent:main:main）。 */
+  sessionEntry?: 'note' | 'main';
 }
 
 export class SessionEngine {

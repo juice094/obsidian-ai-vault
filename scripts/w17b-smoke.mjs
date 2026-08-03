@@ -17,6 +17,7 @@ for (const line of lines) {
 const argUrl = process.argv.find(a => a.startsWith('http://') || a.startsWith('https://'));
 if (argUrl) openclawUrl = argUrl.replace(/\/$/, '');
 const useMainEntry = process.argv.includes('--main');
+const useDevice = process.argv.includes('--device');
 
 if (!openclawToken) {
   console.error('无法从 claw-cred.txt 解析 token');
@@ -45,8 +46,8 @@ function makeVaultIO() {
 const vaultIO = makeVaultIO();
 const events = [];
 const randomNumber = Math.floor(Math.random() * 1000000).toString();
-const agentId = 'gray';
-const sessionKey = useMainEntry ? `agent:${agentId}:main` : undefined;
+const peerAgent = useDevice ? 'device' : 'main';
+const sessionEntry = useMainEntry ? 'main' : 'note';
 
 const engine = new SessionEngine({
   model: 'openclaw/default',
@@ -55,8 +56,8 @@ const engine = new SessionEngine({
   vaultIO,
   provider: new OpenAICompatProvider({ gatewayUrl: openclawUrl, apiKey: openclawToken }),
   route: 'openclaw',
-  sessionKey,
-  agentId,
+  sessionEntry,
+  peerAgent,
   tokenBudgetChars: 48000,
   onEvent: (e) => events.push(e),
 });
@@ -64,6 +65,8 @@ const engine = new SessionEngine({
 console.log('openclawUrl:', openclawUrl);
 console.log('model:', engine.model);
 console.log('route:', engine.route);
+console.log('peerAgent:', engine.peerAgent);
+console.log('sessionEntry:', engine.sessionEntry);
 console.log('sessionKey:', engine.sessionKey);
 console.log('randomNumber:', randomNumber);
 

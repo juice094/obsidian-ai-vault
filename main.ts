@@ -25,7 +25,7 @@ interface AiVaultChatSettings {
   openclawUrl: string;
   openclawToken: string;
   clientId: string;
-  agentId: string;
+  peerAgent: 'main' | 'device';
   sessionEntry: 'note' | 'main';
 }
 
@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   openclawUrl: 'http://100.69.11.71:18789',
   openclawToken: '',
   clientId: 'gateway-client',
-  agentId: 'gray',
+  peerAgent: 'main',
   sessionEntry: 'note',
 };
 
@@ -48,6 +48,18 @@ function modelToGatewayModel(model: 'default' | 'expert', route: 'local' | 'open
     return model === 'expert' ? 'openclaw/main' : 'openclaw/default';
   }
   return model === 'expert' ? 'deepseek-reasoner' : 'deepseek-chat';
+}
+
+function peerAgentToHeaderId(peerAgent: 'main' | 'device'): string {
+  return peerAgent === 'device' ? 'device' : 'gray';
+}
+
+function peerAgentDisplay(peerAgent: 'main' | 'device'): string {
+  return peerAgent === 'device' ? 'device' : '格雷';
+}
+
+function sessionEntryDisplay(entry: 'note' | 'main'): string {
+  return entry === 'main' ? '主会话' : '笔记会话';
 }
 
 function routeToProvider(route: 'local' | 'openclaw'): 'openai-compat' | 'openclaw' {
@@ -92,15 +104,19 @@ class AiVaultChatView extends ItemView {
   private statusEl!: HTMLElement;
   private routeSelectEl!: HTMLSelectElement;
   private routeBadgeEl!: HTMLElement;
+  private identityHeaderEl!: HTMLElement;
+  private sessionEntrySelectEl!: HTMLSelectElement;
   private engine: SessionEngine | null = null;
   private currentPath: string | null = null;
   private isStreaming = false;
   private currentRoute: 'local' | 'openclaw';
+  private currentSessionEntry: 'note' | 'main';
 
   constructor(leaf: WorkspaceLeaf, plugin: AiVaultChatPlugin) {
     super(leaf);
     this.plugin = plugin;
     this.currentRoute = plugin.settings.defaultRoute;
+    this.currentSessionEntry = plugin.settings.sessionEntry;
   }
 
   getViewType(): string {
@@ -133,6 +149,12 @@ class AiVaultChatView extends ItemView {
   private renderLayout() {
     this.rootEl.empty();
 
+    // 对侧身份头部
+    this.identityHeaderEl = this.rootEl.createEl('div', {
+      cls: 'ai-vault-chat-identity',
+      text: this.identityText(),
+    });
+
     // 顶部工具栏
     const toolbar = this.rootEl.createDiv({ cls: 'ai-vault-chat-toolbar' });
     toolbar.createEl('button', { text: '新会话', cls: 'ai-vault-chat-btn' }, (btn) => {
@@ -158,6 +180,17 @@ class AiVaultChatView extends ItemView {
         cls: 'ai-vault-chat-route-badge',
         text: this.routeBadgeText(this.currentRoute),
       });
+    });
+
+    // 会话入口（仅远程路由可切换；新建会话时生效）
+    toolbar.createEl('div', { cls: 'ai-vault-chat-route' }, (entryWrap) => {
+      entryWrap.createEl('span', { text: '入口：', cls: 'ai-vault-chat-route-label' });
+      this.sessionEntrySelectEl = entryWrap.createEl('select', { cls: 'ai-vault-chat-route-select' });
+      this.sessionEntrySelectEl.createEl('option', { text: '笔记会话', value: 'note' });
+      this.sessionEntrySelectEl.createEl('option', { text: '主会话挂接', value: 'main' });
+      this.sessionEntrySelectEl.value = this.currentSessionEntry;
+      this.sessionEntrySelectEl.disabled = this.currentRoute !== 'openclaw';
+      this.sessionEntrySelectEl.addEventListener('change', () => this.onSessionEntryChange());
     });
 
     // 会话列表
@@ -221,6 +254,9 @@ class AiVaultChatView extends ItemView {
   private newSession() {
     this.currentPath = null;
     this.engine = null;
+    this.currentSessionEntry = this.plugin.settings.sessionEntry;
+    this.sessionEntrySelectEl.value = this.currentSessionEntry;
+    this.updateIdentityHeader();
     this.messagesEl.empty();
     this.setStatus('新会话：输入第一条消息');
   }
@@ -237,7 +273,20 @@ class AiVaultChatView extends ItemView {
   }
 
   private routeBadgeText(route: 'local' | 'openclaw'): string {
-    return route === 'openclaw' ? 'OpenClaw' : '本地';
+    return route === 'openclaw' ? '远程' : '本地';
+  }
+
+  private identityText(): string {
+    if (this.currentRoute !== 'openclaw') return '本地';
+    const peer = peerAgentDisplay(this.plugin.settings.peerAgent);
+    const entry = sessionEntryDisplay(this.currentSessionEntry);
+    return `远程 · ${peer} · ${entry}`;
+  }
+
+  private updateIdentityHeader() {
+    if (this.identityHeaderEl) {
+      this.identityHeaderEl.textContent = this.identityText();
+    }
   }
 
   private onRouteChange() {
@@ -245,11 +294,29 @@ class AiVaultChatView extends ItemView {
     if (route === this.currentRoute) return;
     this.currentRoute = route;
     this.routeBadgeEl.textContent = this.routeBadgeText(route);
+    // 本地路由不支持主会话入口
+    this.sessionEntrySelectEl.disabled = route !== 'openclaw';
+    if (route === 'local') {
+      this.currentSessionEntry = 'note';
+      this.sessionEntrySelectEl.value = 'note';
+    }
+    this.updateIdentityHeader();
     // 下一条发送使用新路由；已存在的 engine 保留旧路由，下次发送时重建
     if (!this.isStreaming) {
       this.engine = null;
     }
     this.setStatus(`已切换到 ${this.routeBadgeText(route)} 路由`);
+  }
+
+  private onSessionEntryChange() {
+    const entry = this.sessionEntrySelectEl.value as 'note' | 'main';
+    if (entry === this.currentSessionEntry) return;
+    this.currentSessionEntry = entry;
+    this.updateIdentityHeader();
+    if (!this.isStreaming) {
+      this.engine = null;
+    }
+    this.setStatus(`已切换到 ${sessionEntryDisplay(entry)}`);
   }
 
   private createEngine(sessionPath: string | null): SessionEngine {
@@ -262,10 +329,9 @@ class AiVaultChatView extends ItemView {
     }
     const settings = this.plugin.settings;
     const model = modelToGatewayModel(settings.model, route);
-    const sessionKey = route === 'openclaw' && settings.sessionEntry === 'main'
-      ? `agent:${settings.agentId}:main`
-      : undefined;
     const tokenBudgetChars = route === 'openclaw' ? 48000 : settings.tokenBudgetChars;
+    const peerAgent = route === 'openclaw' ? settings.peerAgent : 'main';
+    const sessionEntry = route === 'openclaw' ? this.currentSessionEntry : 'note';
 
     const engine = new SessionEngine({
       gatewayUrl: settings.gatewayUrl,
@@ -279,8 +345,9 @@ class AiVaultChatView extends ItemView {
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,
       clientId: settings.clientId,
-      sessionKey,
-      agentId: settings.agentId,
+      sessionEntry,
+      peerAgent,
+      agentId: peerAgentToHeaderId(peerAgent),
       onEvent: (e: import('./src/engine.js').EngineEvent) => {
         if (e.type === 'user-saved') {
           this.currentPath = e.path || null;
@@ -402,7 +469,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
     containerEl.createEl('h3', { text: '模型路由' });
     containerEl.createEl('p', {
-      text: '选择本会话的模型提供商。本地 = 内嵌/本机 DeepSeek gateway；远程 = OpenClaw agent（需先配对 device token）。',
+      text: '选择本会话的模型提供商。本地 = 内嵌/本机 DeepSeek gateway；远程 = OpenClaw HTTP 端点（shared-secret token，无需配对）。',
       cls: 'setting-item-description',
     });
 
@@ -456,6 +523,34 @@ class AiVaultChatSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.clientId)
           .onChange(async (value) => {
             this.plugin.settings.clientId = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('对侧代理')
+      .setDesc('仅 OpenClaw 路由生效。main = 格雷；device = device 身份。')
+      .addDropdown((drop) =>
+        drop
+          .addOption('main', 'main（格雷）')
+          .addOption('device', 'device')
+          .setValue(this.plugin.settings.peerAgent)
+          .onChange(async (value) => {
+            this.plugin.settings.peerAgent = value as 'main' | 'device';
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('默认会话入口')
+      .setDesc('仅 OpenClaw 路由生效。笔记会话 = 每个 md 隔离；主会话挂接 = 与 Kimi 客户端共享格雷主会话。')
+      .addDropdown((drop) =>
+        drop
+          .addOption('note', '笔记会话（隔离）')
+          .addOption('main', '主会话挂接（与 Kimi 客户端共享）')
+          .setValue(this.plugin.settings.sessionEntry)
+          .onChange(async (value) => {
+            this.plugin.settings.sessionEntry = value as 'note' | 'main';
             await this.plugin.saveSettings();
           })
       );

@@ -1,0 +1,32 @@
+{
+  "openclawUrl": "http://100.69.11.71:18789",
+  "testedAt": "2026-08-03T11:38:09.064Z",
+  "results": [
+    {
+      "name": "笔记会话随机数",
+      "ok": true,
+      "sessionKey": "obsidian-b2636970-3a27-4b6c-9ad0-98e93618cdaf",
+      "remembered": true,
+      "hasRouteMeta": true,
+      "hasAgentMeta": true,
+      "hasEntryMeta": true
+    },
+    {
+      "name": "主会话挂接",
+      "ok": true,
+      "sessionKey": "agent:main:main",
+      "hasRouteMeta": true,
+      "hasAgentMeta": true,
+      "hasEntryMeta": true
+    },
+    {
+      "name": "device 身份",
+      "ok": true,
+      "sessionKey": "obsidian-92df447d-3bab-4e93-847b-8ed42754fc65",
+      "hasRouteMeta": true,
+      "hasAgentMeta": true,
+      "hasEntryMeta": true
+    }
+  ],
+  "allOk": true
+}

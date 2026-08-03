@@ -38,8 +38,8 @@ function makeFrontmatter({ sessionId, model, thinking, search }) {
   return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join('\n');
 }
 
-function makeMeta({ turnId, userTextLen, model, usage, route }) {
-  return {
+function makeMeta({ turnId, userTextLen, model, usage, route, peerAgent, sessionEntry }) {
+  const meta = {
     user_msg: String(userTextLen),
     ai_msg: String(turnId),
     model,
@@ -47,6 +47,11 @@ function makeMeta({ turnId, userTextLen, model, usage, route }) {
     tokens: usage ? String(usage.total_tokens) : '',
     time: nowIso(),
   };
+  if (route === 'openclaw') {
+    if (peerAgent) meta.agent = peerAgent;
+    if (sessionEntry) meta.entry = sessionEntry;
+  }
+  return meta;
 }
 
 export class SessionEngine {
@@ -65,6 +70,8 @@ export class SessionEngine {
     route = 'local',
     sessionKey,
     agentId,
+    peerAgent = 'main',
+    sessionEntry = 'note',
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, '') : '';
     this.model = model;
@@ -77,8 +84,18 @@ export class SessionEngine {
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
     this.route = route || 'local';
-    this.agentId = agentId || '';
-    this.sessionKey = sessionKey || (this.route === 'openclaw' ? `obsidian-${this.sessionId}` : '');
+    this.peerAgent = peerAgent || 'main';
+    // 若调用方未显式传 agentId，按 peerAgent 推导：main→gray，device→device
+    this.agentId = agentId || (this.peerAgent === 'device' ? 'device' : 'gray');
+    this.sessionEntry = sessionEntry || 'note';
+    if (sessionKey) {
+      this.sessionKey = sessionKey;
+    } else if (this.route === 'openclaw') {
+      // 主会话挂接：Gray-Cloud 确认 key 固定为 agent:main:main
+      this.sessionKey = this.sessionEntry === 'main' ? 'agent:main:main' : `obsidian-${this.sessionId}`;
+    } else {
+      this.sessionKey = '';
+    }
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
@@ -251,7 +268,7 @@ export class SessionEngine {
 
     const finalTurn = {
       ...turnState,
-      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
+      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route, peerAgent: this.peerAgent, sessionEntry: this.sessionEntry }),
       inProgress: false,
     };
     return { md: prefix + serializeTurn(finalTurn) };

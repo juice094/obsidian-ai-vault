@@ -136,6 +136,76 @@ describe('SessionEngine', () => {
     }
   });
 
+  it('uses agent:main:main for openclaw main session entry and records meta', async () => {
+    let sessionKeyHeader = null;
+    let agentIdHeader = null;
+    const vaultIO = makeVaultIO();
+    const { server, url } = await startMockServer((req, res) => {
+      sessionKeyHeader = req.headers['x-openclaw-session-key'];
+      agentIdHeader = req.headers['x-openclaw-agent-id'];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(mockSseStream());
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: 'http://ignored',
+        model: 'openclaw/default',
+        thinking: false,
+        search: false,
+        vaultIO,
+        route: 'openclaw',
+        openclawUrl: url,
+        openclawToken: 'test-token',
+        peerAgent: 'main',
+        sessionEntry: 'main',
+      });
+
+      assert.equal(engine.sessionKey, 'agent:main:main');
+      await engine.send('hello');
+      assert.equal(sessionKeyHeader, 'agent:main:main');
+      assert.equal(agentIdHeader, 'gray');
+      const md = vaultIO._files.get(engine.sessionPath);
+      assert.ok(md.includes('route=openclaw'));
+      assert.ok(md.includes('agent=main'));
+      assert.ok(md.includes('entry=main'));
+    } finally {
+      server.close();
+    }
+  });
+
+  it('records device peerAgent in turn meta', async () => {
+    let agentIdHeader = null;
+    const vaultIO = makeVaultIO();
+    const { server, url } = await startMockServer((req, res) => {
+      agentIdHeader = req.headers['x-openclaw-agent-id'];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(mockSseStream());
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: 'http://ignored',
+        model: 'openclaw/default',
+        thinking: false,
+        search: false,
+        vaultIO,
+        route: 'openclaw',
+        openclawUrl: url,
+        openclawToken: 'test-token',
+        peerAgent: 'device',
+      });
+
+      await engine.send('hello');
+      assert.equal(agentIdHeader, 'device');
+      const md = vaultIO._files.get(engine.sessionPath);
+      assert.ok(md.includes('agent=device'));
+      assert.ok(md.includes('entry=note'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('sanitizes illegal filename characters from the session title', async () => {
     const vaultIO = makeVaultIO();
     const { server, url } = await startMockServer((req, res) => {

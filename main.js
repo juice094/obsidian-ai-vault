@@ -725,8 +725,8 @@ function makeFrontmatter({ sessionId, model, thinking, search }) {
   };
   return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
-function makeMeta({ turnId, userTextLen, model, usage, route }) {
-  return {
+function makeMeta({ turnId, userTextLen, model, usage, route, peerAgent, sessionEntry }) {
+  const meta = {
     user_msg: String(userTextLen),
     ai_msg: String(turnId),
     model,
@@ -734,6 +734,11 @@ function makeMeta({ turnId, userTextLen, model, usage, route }) {
     tokens: usage ? String(usage.total_tokens) : "",
     time: nowIso()
   };
+  if (route === "openclaw") {
+    if (peerAgent) meta.agent = peerAgent;
+    if (sessionEntry) meta.entry = sessionEntry;
+  }
+  return meta;
 }
 var SessionEngine = class {
   constructor({
@@ -750,7 +755,9 @@ var SessionEngine = class {
     clientId,
     route = "local",
     sessionKey,
-    agentId
+    agentId,
+    peerAgent = "main",
+    sessionEntry = "note"
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
     this.model = model;
@@ -764,8 +771,16 @@ var SessionEngine = class {
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
     this.route = route || "local";
-    this.agentId = agentId || "";
-    this.sessionKey = sessionKey || (this.route === "openclaw" ? `obsidian-${this.sessionId}` : "");
+    this.peerAgent = peerAgent || "main";
+    this.agentId = agentId || (this.peerAgent === "device" ? "device" : "gray");
+    this.sessionEntry = sessionEntry || "note";
+    if (sessionKey) {
+      this.sessionKey = sessionKey;
+    } else if (this.route === "openclaw") {
+      this.sessionKey = this.sessionEntry === "main" ? "agent:main:main" : `obsidian-${this.sessionId}`;
+    } else {
+      this.sessionKey = "";
+    }
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
@@ -918,7 +933,7 @@ var SessionEngine = class {
     await flush(true);
     const finalTurn = {
       ...turnState,
-      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
+      meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route, peerAgent: this.peerAgent, sessionEntry: this.sessionEntry }),
       inProgress: false
     };
     return { md: prefix + serializeTurn(finalTurn) };
@@ -1032,7 +1047,7 @@ var DEFAULT_SETTINGS = {
   openclawUrl: "http://100.69.11.71:18789",
   openclawToken: "",
   clientId: "gateway-client",
-  agentId: "gray",
+  peerAgent: "main",
   sessionEntry: "note"
 };
 function modelToGatewayModel(model, route) {
@@ -1040,6 +1055,15 @@ function modelToGatewayModel(model, route) {
     return model === "expert" ? "openclaw/main" : "openclaw/default";
   }
   return model === "expert" ? "deepseek-reasoner" : "deepseek-chat";
+}
+function peerAgentToHeaderId(peerAgent) {
+  return peerAgent === "device" ? "device" : "gray";
+}
+function peerAgentDisplay(peerAgent) {
+  return peerAgent === "device" ? "device" : "\u683C\u96F7";
+}
+function sessionEntryDisplay(entry) {
+  return entry === "main" ? "\u4E3B\u4F1A\u8BDD" : "\u7B14\u8BB0\u4F1A\u8BDD";
 }
 function routeToProvider(route) {
   return route === "openclaw" ? "openclaw" : "openai-compat";
@@ -1078,6 +1102,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     this.renderTimer = null;
     this.plugin = plugin;
     this.currentRoute = plugin.settings.defaultRoute;
+    this.currentSessionEntry = plugin.settings.sessionEntry;
   }
   getViewType() {
     return VIEW_TYPE_AI_CHAT;
@@ -1103,6 +1128,10 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
   }
   renderLayout() {
     this.rootEl.empty();
+    this.identityHeaderEl = this.rootEl.createEl("div", {
+      cls: "ai-vault-chat-identity",
+      text: this.identityText()
+    });
     const toolbar = this.rootEl.createDiv({ cls: "ai-vault-chat-toolbar" });
     toolbar.createEl("button", { text: "\u65B0\u4F1A\u8BDD", cls: "ai-vault-chat-btn" }, (btn) => {
       btn.addEventListener("click", () => this.newSession());
@@ -1125,6 +1154,15 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
         cls: "ai-vault-chat-route-badge",
         text: this.routeBadgeText(this.currentRoute)
       });
+    });
+    toolbar.createEl("div", { cls: "ai-vault-chat-route" }, (entryWrap) => {
+      entryWrap.createEl("span", { text: "\u5165\u53E3\uFF1A", cls: "ai-vault-chat-route-label" });
+      this.sessionEntrySelectEl = entryWrap.createEl("select", { cls: "ai-vault-chat-route-select" });
+      this.sessionEntrySelectEl.createEl("option", { text: "\u7B14\u8BB0\u4F1A\u8BDD", value: "note" });
+      this.sessionEntrySelectEl.createEl("option", { text: "\u4E3B\u4F1A\u8BDD\u6302\u63A5", value: "main" });
+      this.sessionEntrySelectEl.value = this.currentSessionEntry;
+      this.sessionEntrySelectEl.disabled = this.currentRoute !== "openclaw";
+      this.sessionEntrySelectEl.addEventListener("change", () => this.onSessionEntryChange());
     });
     this.sessionListEl = this.rootEl.createDiv({ cls: "ai-vault-chat-sessions" });
     this.messagesEl = this.rootEl.createDiv({ cls: "ai-vault-chat-messages" });
@@ -1173,6 +1211,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
   newSession() {
     this.currentPath = null;
     this.engine = null;
+    this.currentSessionEntry = this.plugin.settings.sessionEntry;
+    this.sessionEntrySelectEl.value = this.currentSessionEntry;
+    this.updateIdentityHeader();
     this.messagesEl.empty();
     this.setStatus("\u65B0\u4F1A\u8BDD\uFF1A\u8F93\u5165\u7B2C\u4E00\u6761\u6D88\u606F");
   }
@@ -1187,17 +1228,44 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     this.setStatus("\u5DF2\u6807\u8BB0\u4E2D\u65AD");
   }
   routeBadgeText(route) {
-    return route === "openclaw" ? "OpenClaw" : "\u672C\u5730";
+    return route === "openclaw" ? "\u8FDC\u7A0B" : "\u672C\u5730";
+  }
+  identityText() {
+    if (this.currentRoute !== "openclaw") return "\u672C\u5730";
+    const peer = peerAgentDisplay(this.plugin.settings.peerAgent);
+    const entry = sessionEntryDisplay(this.currentSessionEntry);
+    return `\u8FDC\u7A0B \xB7 ${peer} \xB7 ${entry}`;
+  }
+  updateIdentityHeader() {
+    if (this.identityHeaderEl) {
+      this.identityHeaderEl.textContent = this.identityText();
+    }
   }
   onRouteChange() {
     const route = this.routeSelectEl.value;
     if (route === this.currentRoute) return;
     this.currentRoute = route;
     this.routeBadgeEl.textContent = this.routeBadgeText(route);
+    this.sessionEntrySelectEl.disabled = route !== "openclaw";
+    if (route === "local") {
+      this.currentSessionEntry = "note";
+      this.sessionEntrySelectEl.value = "note";
+    }
+    this.updateIdentityHeader();
     if (!this.isStreaming) {
       this.engine = null;
     }
     this.setStatus(`\u5DF2\u5207\u6362\u5230 ${this.routeBadgeText(route)} \u8DEF\u7531`);
+  }
+  onSessionEntryChange() {
+    const entry = this.sessionEntrySelectEl.value;
+    if (entry === this.currentSessionEntry) return;
+    this.currentSessionEntry = entry;
+    this.updateIdentityHeader();
+    if (!this.isStreaming) {
+      this.engine = null;
+    }
+    this.setStatus(`\u5DF2\u5207\u6362\u5230 ${sessionEntryDisplay(entry)}`);
   }
   createEngine(sessionPath) {
     const vaultIO = makeVaultIO(this.app.vault.adapter);
@@ -1209,8 +1277,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     }
     const settings = this.plugin.settings;
     const model = modelToGatewayModel(settings.model, route);
-    const sessionKey = route === "openclaw" && settings.sessionEntry === "main" ? `agent:${settings.agentId}:main` : void 0;
     const tokenBudgetChars = route === "openclaw" ? 48e3 : settings.tokenBudgetChars;
+    const peerAgent = route === "openclaw" ? settings.peerAgent : "main";
+    const sessionEntry = route === "openclaw" ? this.currentSessionEntry : "note";
     const engine = new SessionEngine({
       gatewayUrl: settings.gatewayUrl,
       model,
@@ -1223,8 +1292,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,
       clientId: settings.clientId,
-      sessionKey,
-      agentId: settings.agentId,
+      sessionEntry,
+      peerAgent,
+      agentId: peerAgentToHeaderId(peerAgent),
       onEvent: (e) => {
         if (e.type === "user-saved") {
           this.currentPath = e.path || null;
@@ -1326,7 +1396,7 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
     );
     containerEl.createEl("h3", { text: "\u6A21\u578B\u8DEF\u7531" });
     containerEl.createEl("p", {
-      text: "\u9009\u62E9\u672C\u4F1A\u8BDD\u7684\u6A21\u578B\u63D0\u4F9B\u5546\u3002\u672C\u5730 = \u5185\u5D4C/\u672C\u673A DeepSeek gateway\uFF1B\u8FDC\u7A0B = OpenClaw agent\uFF08\u9700\u5148\u914D\u5BF9 device token\uFF09\u3002",
+      text: "\u9009\u62E9\u672C\u4F1A\u8BDD\u7684\u6A21\u578B\u63D0\u4F9B\u5546\u3002\u672C\u5730 = \u5185\u5D4C/\u672C\u673A DeepSeek gateway\uFF1B\u8FDC\u7A0B = OpenClaw HTTP \u7AEF\u70B9\uFF08shared-secret token\uFF0C\u65E0\u9700\u914D\u5BF9\uFF09\u3002",
       cls: "setting-item-description"
     });
     new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u8DEF\u7531").setDesc("\u65B0\u5EFA\u4F1A\u8BDD\u7684\u9ED8\u8BA4\u8DEF\u7531").addDropdown(
@@ -1351,6 +1421,18 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("OpenClaw Client ID").setDesc("\u4FDD\u7559\u5B57\u6BB5\uFF0C\u5F53\u524D HTTP \u9762\u4E0D\u4F7F\u7528").addText(
       (text) => text.setPlaceholder("gateway-client").setValue(this.plugin.settings.clientId).onChange(async (value) => {
         this.plugin.settings.clientId = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u5BF9\u4FA7\u4EE3\u7406").setDesc("\u4EC5 OpenClaw \u8DEF\u7531\u751F\u6548\u3002main = \u683C\u96F7\uFF1Bdevice = device \u8EAB\u4EFD\u3002").addDropdown(
+      (drop) => drop.addOption("main", "main\uFF08\u683C\u96F7\uFF09").addOption("device", "device").setValue(this.plugin.settings.peerAgent).onChange(async (value) => {
+        this.plugin.settings.peerAgent = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u4F1A\u8BDD\u5165\u53E3").setDesc("\u4EC5 OpenClaw \u8DEF\u7531\u751F\u6548\u3002\u7B14\u8BB0\u4F1A\u8BDD = \u6BCF\u4E2A md \u9694\u79BB\uFF1B\u4E3B\u4F1A\u8BDD\u6302\u63A5 = \u4E0E Kimi \u5BA2\u6237\u7AEF\u5171\u4EAB\u683C\u96F7\u4E3B\u4F1A\u8BDD\u3002").addDropdown(
+      (drop) => drop.addOption("note", "\u7B14\u8BB0\u4F1A\u8BDD\uFF08\u9694\u79BB\uFF09").addOption("main", "\u4E3B\u4F1A\u8BDD\u6302\u63A5\uFF08\u4E0E Kimi \u5BA2\u6237\u7AEF\u5171\u4EAB\uFF09").setValue(this.plugin.settings.sessionEntry).onChange(async (value) => {
+        this.plugin.settings.sessionEntry = value;
         await this.plugin.saveSettings();
       })
     );
