@@ -25,6 +25,8 @@ interface AiVaultChatSettings {
   openclawUrl: string;
   openclawToken: string;
   clientId: string;
+  agentId: string;
+  sessionEntry: 'note' | 'main';
 }
 
 const DEFAULT_SETTINGS: AiVaultChatSettings = {
@@ -37,6 +39,8 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   openclawUrl: 'http://100.69.11.71:18789',
   openclawToken: '',
   clientId: 'gateway-client',
+  agentId: 'gray',
+  sessionEntry: 'note',
 };
 
 function modelToGatewayModel(model: 'default' | 'expert', route: 'local' | 'openclaw'): string {
@@ -258,9 +262,10 @@ class AiVaultChatView extends ItemView {
     }
     const settings = this.plugin.settings;
     const model = modelToGatewayModel(settings.model, route);
-    const provider = route === 'openclaw'
-      ? new OpenAICompatProvider({ gatewayUrl: settings.openclawUrl, apiKey: settings.openclawToken })
-      : routeToProvider(route);
+    const sessionKey = route === 'openclaw' && settings.sessionEntry === 'main'
+      ? `agent:${settings.agentId}:main`
+      : undefined;
+    const tokenBudgetChars = route === 'openclaw' ? 48000 : settings.tokenBudgetChars;
 
     const engine = new SessionEngine({
       gatewayUrl: settings.gatewayUrl,
@@ -268,12 +273,14 @@ class AiVaultChatView extends ItemView {
       thinking: settings.thinking,
       search: settings.search,
       vaultIO,
-      tokenBudgetChars: settings.tokenBudgetChars,
-      provider,
+      tokenBudgetChars,
+      provider: routeToProvider(route),
       route,
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,
       clientId: settings.clientId,
+      sessionKey,
+      agentId: settings.agentId,
       onEvent: (e: import('./src/engine.js').EngineEvent) => {
         if (e.type === 'user-saved') {
           this.currentPath = e.path || null;

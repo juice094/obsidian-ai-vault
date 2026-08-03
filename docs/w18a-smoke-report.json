@@ -1,0 +1,30 @@
+{
+  "openclawUrl": "http://100.69.11.71:18789",
+  "sessionKey": "obsidian-51dde90d-d054-4e8e-8a11-1a136c57a1a7",
+  "sessionPath": "AI 会话/2026-08-03 请记住这个数字：88937。只回复“已记住”。.md",
+  "metas": [
+    "<!-- turn:1 user_msg=23 ai_msg=1 model=openclaw/default route=openclaw tokens= time=2026-08-03T11:26:00.733Z -->",
+    "<!-- turn:2 user_msg=14 ai_msg=2 model=openclaw/default route=openclaw tokens= time=2026-08-03T11:26:12.633Z -->"
+  ],
+  "randomNumber": "88937",
+  "remembered": true,
+  "events": [
+    "user-saved",
+    "content-delta",
+    "content-delta",
+    "turn-done"
+  ],
+  "round2Events": [
+    "user-saved",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "content-delta",
+    "turn-done"
+  ],
+  "hasRouteMeta": true,
+  "ok": true,
+  "testedAt": "2026-08-03T11:26:12.634Z"
+}

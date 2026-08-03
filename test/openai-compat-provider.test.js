@@ -93,6 +93,70 @@ describe('OpenAICompatProvider', () => {
     }
   });
 
+  it('sends extra custom headers', async () => {
+    let sessionKeyHeader = null;
+    let agentIdHeader = null;
+    const { server, url } = await startMockServer((req, res) => {
+      sessionKeyHeader = req.headers['x-openclaw-session-key'];
+      agentIdHeader = req.headers['x-openclaw-agent-id'];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end('data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+    });
+
+    try {
+      const provider = new OpenAICompatProvider({
+        gatewayUrl: url,
+        apiKey: 'k',
+        headers: {
+          'x-openclaw-session-key': 'obsidian-123',
+          'x-openclaw-agent-id': 'gray',
+        },
+      });
+      for await (const _ of provider.streamChat({
+        messages: [{ role: 'user', content: 'hello' }],
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        signal: new AbortController().signal,
+      })) {
+        // noop
+      }
+      assert.equal(sessionKeyHeader, 'obsidian-123');
+      assert.equal(agentIdHeader, 'gray');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('maps delta.tool_calls to search_results event', async () => {
+    const { server, url } = await startMockServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"kimi_search","arguments":"{\\"query\\": \\"syncthing conflict"}}]}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":" resolution\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n');
+      res.end('data: [DONE]\n\n');
+    });
+
+    try {
+      const provider = new OpenAICompatProvider({ gatewayUrl: url });
+      const events = [];
+      for await (const ev of provider.streamChat({
+        messages: [{ role: 'user', content: 'search' }],
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        signal: new AbortController().signal,
+      })) {
+        events.push(ev);
+      }
+      assert.ok(events.some(e => e.type === 'search_results'));
+      const search = events.find(e => e.type === 'search_results');
+      assert.ok(search.results.queries[0].includes('syncthing conflict resolution'));
+      assert.ok(events.some(e => e.type === 'finish'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('throws on non-ok gateway response', async () => {
     const { server, url } = await startMockServer((req, res) => {
       res.writeHead(503);

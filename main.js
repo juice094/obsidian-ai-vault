@@ -326,9 +326,10 @@ var SUMMARY_PROMPT = `\u8BF7\u628A\u4EE5\u4E0B AI \u4E0E\u7528\u6237\u7684\u591A
 
 // src/openai-compat-provider.js
 var OpenAICompatProvider = class {
-  constructor({ gatewayUrl, apiKey }) {
+  constructor({ gatewayUrl, apiKey, headers }) {
     this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
     this.apiKey = apiKey || "";
+    this.extraHeaders = headers || {};
   }
   async *streamChat({ messages, model, thinking, search, signal }) {
     const payload = {
@@ -336,7 +337,10 @@ var OpenAICompatProvider = class {
       messages,
       stream: true
     };
-    const headers = { "Content-Type": "application/json" };
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.extraHeaders
+    };
     if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
     const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
       method: "POST",
@@ -350,6 +354,7 @@ var OpenAICompatProvider = class {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    const toolBuffers = /* @__PURE__ */ new Map();
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -358,33 +363,63 @@ var OpenAICompatProvider = class {
         const lines = buf.split("\n");
         buf = lines.pop();
         for (const line of lines) {
-          const result = this._processSseLine(line);
-          if (result) yield result;
+          const results = this._processSseLine(line, toolBuffers);
+          if (results) {
+            for (const result of Array.isArray(results) ? results : [results]) {
+              yield result;
+            }
+          }
         }
       }
     } finally {
       reader.releaseLock();
     }
   }
-  _processSseLine(line) {
-    var _a, _b, _c, _d, _e, _f;
+  _processSseLine(line, toolBuffers) {
+    var _a, _b, _c, _d;
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) return null;
     const data = trimmed.slice(5).trim();
     if (data === "[DONE]") return null;
     try {
       const chunk = JSON.parse(data);
-      const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
-      if (!delta) {
-        if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
-          return { type: "finish", usage: chunk.usage };
+      const choice = (_a = chunk.choices) == null ? void 0 : _a[0];
+      const delta = choice == null ? void 0 : choice.delta;
+      const finishReason = choice == null ? void 0 : choice.finish_reason;
+      if (delta == null ? void 0 : delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = (_b = tc.index) != null ? _b : 0;
+          const existing = toolBuffers.get(idx) || { id: "", type: "", name: "", args: "" };
+          if (tc.id) existing.id = tc.id;
+          if (tc.type) existing.type = tc.type;
+          if ((_c = tc.function) == null ? void 0 : _c.name) existing.name = tc.function.name;
+          if ((_d = tc.function) == null ? void 0 : _d.arguments) existing.args += tc.function.arguments;
+          toolBuffers.set(idx, existing);
         }
-        return null;
       }
-      if (delta.content) return { type: "content", delta: delta.content };
-      if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
-      if (delta.search_results) return { type: "search_results", results: delta.search_results };
-      if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
+      if (finishReason === "tool_calls") {
+        const queries = [];
+        for (const tc of toolBuffers.values()) {
+          let args = {};
+          try {
+            args = JSON.parse(tc.args);
+          } catch (e) {
+          }
+          const query = args.query || args.q || args.search || tc.name;
+          if (query) queries.push(query);
+        }
+        toolBuffers.clear();
+        const events = [];
+        if (queries.length > 0) {
+          events.push({ type: "search_results", results: { queries, results: [] } });
+        }
+        events.push({ type: "finish", usage: chunk.usage });
+        return events;
+      }
+      if (delta == null ? void 0 : delta.content) return { type: "content", delta: delta.content };
+      if (delta == null ? void 0 : delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
+      if (delta == null ? void 0 : delta.search_results) return { type: "search_results", results: delta.search_results };
+      if (finishReason) {
         return { type: "finish", usage: chunk.usage };
       }
       return null;
@@ -713,7 +748,9 @@ var SessionEngine = class {
     openclawUrl,
     openclawToken,
     clientId,
-    route = "local"
+    route = "local",
+    sessionKey,
+    agentId
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
     this.model = model;
@@ -727,6 +764,8 @@ var SessionEngine = class {
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
     this.route = route || "local";
+    this.agentId = agentId || "";
+    this.sessionKey = sessionKey || (this.route === "openclaw" ? `obsidian-${this.sessionId}` : "");
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
@@ -741,7 +780,18 @@ var SessionEngine = class {
     }
     const name = provider || "openai-compat";
     if (name === "openai-compat") {
-      return new OpenAICompatProvider({ gatewayUrl });
+      const isOpenclaw = this.route === "openclaw";
+      const url = isOpenclaw ? openclawUrl : gatewayUrl;
+      const headers = {};
+      if (isOpenclaw) {
+        if (this.sessionKey) headers["x-openclaw-session-key"] = this.sessionKey;
+        if (this.agentId) headers["x-openclaw-agent-id"] = this.agentId;
+      }
+      return new OpenAICompatProvider({
+        gatewayUrl: url,
+        apiKey: isOpenclaw ? openclawToken : "",
+        headers
+      });
     }
     if (name === "openclaw") {
       if (!openclawUrl) throw new Error("OpenClaw route requires openclawUrl");
@@ -981,7 +1031,9 @@ var DEFAULT_SETTINGS = {
   defaultRoute: "local",
   openclawUrl: "http://100.69.11.71:18789",
   openclawToken: "",
-  clientId: "gateway-client"
+  clientId: "gateway-client",
+  agentId: "gray",
+  sessionEntry: "note"
 };
 function modelToGatewayModel(model, route) {
   if (route === "openclaw") {
@@ -1157,19 +1209,22 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     }
     const settings = this.plugin.settings;
     const model = modelToGatewayModel(settings.model, route);
-    const provider = route === "openclaw" ? new OpenAICompatProvider({ gatewayUrl: settings.openclawUrl, apiKey: settings.openclawToken }) : routeToProvider(route);
+    const sessionKey = route === "openclaw" && settings.sessionEntry === "main" ? `agent:${settings.agentId}:main` : void 0;
+    const tokenBudgetChars = route === "openclaw" ? 48e3 : settings.tokenBudgetChars;
     const engine = new SessionEngine({
       gatewayUrl: settings.gatewayUrl,
       model,
       thinking: settings.thinking,
       search: settings.search,
       vaultIO,
-      tokenBudgetChars: settings.tokenBudgetChars,
-      provider,
+      tokenBudgetChars,
+      provider: routeToProvider(route),
       route,
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,
       clientId: settings.clientId,
+      sessionKey,
+      agentId: settings.agentId,
       onEvent: (e) => {
         if (e.type === "user-saved") {
           this.currentPath = e.path || null;

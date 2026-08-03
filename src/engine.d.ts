@@ -54,6 +54,10 @@ export interface SessionEngineOptions {
   clientId?: string;
   /** 路由标记：'local' = 本地/内嵌 DeepSeek gateway；'openclaw' = 远程 OpenClaw agent。写入 turn meta。 */
   route?: 'local' | 'openclaw';
+  /** 覆盖默认 session key；openclaw 路由默认 obsidian-{sessionId}。 */
+  sessionKey?: string;
+  /** 对侧 agent 标识，用于 x-openclaw-agent-id header。 */
+  agentId?: string;
 }
 
 export class SessionEngine {

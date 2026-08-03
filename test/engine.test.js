@@ -100,6 +100,42 @@ describe('SessionEngine', () => {
     }
   });
 
+  it('defaults openclaw session key to obsidian-{sessionId}', async () => {
+    let sessionKeyHeader = null;
+    let agentIdHeader = null;
+    const vaultIO = makeVaultIO();
+    const { server, url } = await startMockServer((req, res) => {
+      sessionKeyHeader = req.headers['x-openclaw-session-key'];
+      agentIdHeader = req.headers['x-openclaw-agent-id'];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(mockSseStream());
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: 'http://ignored',
+        model: 'openclaw/default',
+        thinking: false,
+        search: false,
+        vaultIO,
+        route: 'openclaw',
+        openclawUrl: url,
+        openclawToken: 'test-token',
+        agentId: 'gray',
+      });
+
+      assert.ok(engine.sessionKey.startsWith('obsidian-'));
+      await engine.send('hello');
+      assert.equal(sessionKeyHeader, engine.sessionKey);
+      assert.equal(agentIdHeader, 'gray');
+      assert.ok(engine.sessionPath.startsWith('AI 会话/'));
+      const md = vaultIO._files.get(engine.sessionPath);
+      assert.ok(md.includes('route=openclaw'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('sanitizes illegal filename characters from the session title', async () => {
     const vaultIO = makeVaultIO();
     const { server, url } = await startMockServer((req, res) => {

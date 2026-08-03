@@ -63,6 +63,8 @@ export class SessionEngine {
     openclawToken,
     clientId,
     route = 'local',
+    sessionKey,
+    agentId,
   }) {
     this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, '') : '';
     this.model = model;
@@ -75,6 +77,8 @@ export class SessionEngine {
     this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
     this.abortController = null;
     this.route = route || 'local';
+    this.agentId = agentId || '';
+    this.sessionKey = sessionKey || (this.route === 'openclaw' ? `obsidian-${this.sessionId}` : '');
     this.provider = this._resolveProvider({
       provider,
       gatewayUrl,
@@ -90,7 +94,18 @@ export class SessionEngine {
     }
     const name = provider || 'openai-compat';
     if (name === 'openai-compat') {
-      return new OpenAICompatProvider({ gatewayUrl });
+      const isOpenclaw = this.route === 'openclaw';
+      const url = isOpenclaw ? openclawUrl : gatewayUrl;
+      const headers = {};
+      if (isOpenclaw) {
+        if (this.sessionKey) headers['x-openclaw-session-key'] = this.sessionKey;
+        if (this.agentId) headers['x-openclaw-agent-id'] = this.agentId;
+      }
+      return new OpenAICompatProvider({
+        gatewayUrl: url,
+        apiKey: isOpenclaw ? openclawToken : '',
+        headers,
+      });
     }
     if (name === 'openclaw') {
       if (!openclawUrl) throw new Error('OpenClaw route requires openclawUrl');
