@@ -718,6 +718,10 @@
                                     <div class="segment">default</div>
                                     <div class="segment active">expert</div>
                                 </div>
+                                <div class="segment-control">
+                                    <div class="segment active">本地</div>
+                                    <div class="segment">远程</div>
+                                </div>
                                 <div class="switch-row on">
                                     <span>搜索</span>
                                     <div class="pill"></div>
@@ -865,6 +869,10 @@
                                     <div class="segment active">default</div>
                                     <div class="segment">expert</div>
                                 </div>
+                                <div class="segment-control">
+                                    <div class="segment active">本地</div>
+                                    <div class="segment">远程</div>
+                                </div>
                                 <div class="switch-row on">
                                     <span>搜索</span>
                                     <div class="pill"></div>
@@ -939,6 +947,10 @@
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
+                    <p><strong>路由分段控件</strong>：本地 / 远程 两态。本地 = 内嵌 127.0.0.1:18793 DeepSeek gateway；远程 = OpenClaw（需已配对 device token）。选择写入当前 turn 的 <code>route</code> meta，并持久化到 localStorage。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
                     <p><strong>搜索开关</strong>：控制本轮是否请求 gateway 输出 search_results。</p>
                 </div>
                 <div class="annotation-item">
@@ -1004,6 +1016,10 @@
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
                     <p><strong>上下文 chip</strong>：查看普通笔记时显示「📎《旅行预算表》」，默认开启；关闭后本次发送不再携带全文。</p>
+                </div>
+                <div class="annotation-item">
+                    <span class="badge injected">注入</span>
+                    <p><strong>路由分段控件</strong>：本地 / 远程 两态。与会话笔记一致；当前选择写入 <code>route</code> meta 并持久化到 localStorage，普通笔记创建的新会话同样继承该选择。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge interaction">交互</span>
