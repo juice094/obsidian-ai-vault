@@ -118,7 +118,7 @@ function createMockServer({ port = 0, token = DEFAULT_TOKEN, legacy = false, onC
 
         if (msg.method === 'chat.send' && ws.state === 'connected') {
           ws.chatReqId = msg.id;
-          send(ws, { type: 'res', id: msg.id, ok: true, payload: { message: { role: 'assistant', content: 'Mock reply' } } });
+          send(ws, { type: 'res', id: msg.id, ok: true, payload: { runId: 'mock-run', status: 'started' } });
           if (onChat) onChat(msg.params);
 
           if (legacy) {

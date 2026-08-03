@@ -58,8 +58,8 @@ describe('OpenClawProvider', () => {
 
       assert.ok(chatParams, 'chat.send params received');
       assert.equal(chatParams.sessionKey, 'agent:main:main');
-      assert.equal(chatParams.message[0].type, 'text');
-      assert.equal(chatParams.message[0].text, 'hello');
+      assert.equal(typeof chatParams.idempotencyKey, 'string');
+      assert.equal(chatParams.message, 'hello');
     } finally {
       server.close();
     }

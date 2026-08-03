@@ -172,16 +172,16 @@ export class OpenClawProvider {
         if (this._isHelloOk(parsed)) break;
       }
 
-      // 3. 发送 chat.send
+      // 3. 发送 chat.send（真实 OpenClaw gateway 格式）
       const chatReqId = randId();
       send({
         type: 'req',
         id: chatReqId,
         method: 'chat.send',
         params: {
+          idempotencyKey: randId(),
           sessionKey: this.sessionKey,
-          message: [{ type: 'text', text: lastUserContent() }],
-          stream: true,
+          message: lastUserContent(),
         },
       });
 
@@ -266,6 +266,10 @@ export class OpenClawProvider {
     // 真实 OpenClaw gateway 用 agent 事件推送 assistant 流式文本。
     if (event === 'agent') {
       const data = payload.data;
+      // lifecycle end 标志本轮结束
+      if (payload.stream === 'lifecycle' && data?.phase === 'end') {
+        return { type: 'finish' };
+      }
       if (data) {
         if (payload.stream === 'reasoning' || payload.stream === 'think') {
           if (data.delta) return { type: 'reasoning', delta: data.delta };
@@ -276,6 +280,17 @@ export class OpenClawProvider {
       }
       if (payload.done === true || payload.finished === true) {
         return { type: 'finish' };
+      }
+    }
+
+    // OpenClaw 同时推送 chat 事件（delta / final）。
+    if (event === 'chat') {
+      if (payload.state === 'final') return { type: 'finish' };
+      const content = payload.message?.content;
+      if (typeof content === 'string') return { type: 'content', delta: content };
+      if (Array.isArray(content)) {
+        const text = content.filter(c => c.type === 'text').map(c => c.text).join('');
+        if (text) return { type: 'content', delta: text };
       }
     }
 

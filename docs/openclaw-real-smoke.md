@@ -343,9 +343,78 @@ admin connect 请求（token 已打码）：
 - 宿主 CLI 批准无 pending 请求可批；
 - 安全降级方案（`auth.mode none`、`nodes.allowCommands`）已被指挥层明确拒绝。
 
-## 下一步建议
+---
 
-1. **服务端为 admin token 追加 `operator.pairing` scope**：这是路径 A 成立的最低要求；
-2. 或**提供已带 `operator.pairing` + `operator.write` 的新 admin token/节点凭证**；
-3. 权限解决后重跑 `node scripts/openclaw-pair.mjs ws://100.69.11.71:18789`，脚本会在 `node.pair.request` 成功后挂起等待宿主 CLI 批准；
-4. `agent` 事件映射已保留在 `src/openclaw-provider.js` 中，权限解决后无需再改 provider 代码。
+## 追加：R4b 最终通过（2026-08-03，VPS loopback 配对 + CLI 批准）
+
+在获得 VPS SSH/Tailscale 访问后，直接登录网关宿主完成一次性配对，并跑通真实 chat。
+
+### 关键发现
+
+1. **shared-secret token 在 WebSocket 面确实不授权**：远程 connect（Tailscale IP）用 shared-secret token 只能完成认证，`hello-ok` 无 `auth.scopes`，`chat.send` 报 `missing scope: operator.write`。
+2. **loopback + 设备签名可拿到完整 scope**：从 VPS 本机连 `ws://127.0.0.1:18789`，connect 请求带上 Ed25519 签名的 `device` 块后，`hello-ok.auth.scopes` 返回 `["operator.pairing","operator.read","operator.write"]`。
+3. **节点配对协议与 clarity 文档不同**：真实 gateway 的 `node.pair.request` 参数是 node 元数据（`nodeId`/`displayName`/`platform`/`caps`/`commands` 等），不是 `device`/`client`/`role`/`scopes`。
+4. **chat.send 真实格式**：
+   - 必须带 `idempotencyKey`（字符串）；
+   - `message` 是字符串，不是对象数组；
+   - 没有 `stream` 字段；
+   - 服务端以 `agent` + `chat` 事件流式返回，`agent` 事件的 `lifecycle/end` 与 `chat` 事件的 `state: "final"` 都标志结束。
+
+### VPS 侧执行命令（一次性）
+
+```bash
+# 1. 确认 gateway 在运行
+openclaw gateway status
+
+# 2. 从 loopback 发起 node.pair.request（脚本已放 /tmp/loopback-pair-test.mjs）
+node /tmp/loopback-pair-test.mjs
+# 输出包含 requestId，状态为 pending
+
+# 3. 宿主 CLI 批准
+openclaw nodes approve <requestId>
+
+# 4. 查看已配对节点与 device token
+openclaw nodes list
+# 或 cat ~/.openclaw/nodes/paired.json
+
+# 5. 用 device token 跑 loopback chat 冒烟（脚本已放 /tmp/loopback-chat-test.mjs）
+node /tmp/loopback-chat-test.mjs
+```
+
+### 执行结果
+
+- 配对节点：`obsidian-ai-vault-1785741335189`
+- device token 已追加到本地 `claw-cred.txt`（gitignored）。
+- `connect → node.pair.request → pending → approve → chat.send → agent/chat 事件流 → lifecycle end` 完整走通。
+- 服务端返回示例（已截断）：
+  ```json
+  { "type": "res", "ok": true, "payload": { "type": "hello-ok", "auth": { "scopes": ["operator.pairing","operator.read","operator.write"] } } }
+  { "type": "res", "method": "chat.send", "ok": true, "payload": { "runId": "...", "status": "started" } }
+  { "type": "event", "event": "agent", "payload": { "stream": "assistant", "data": { "text": "你好！", "delta": "你好！" } } }
+  { "type": "event", "event": "chat", "payload": { "state": "delta", "message": { "role": "assistant", "content": "..." } } }
+  { "type": "event", "event": "agent", "payload": { "stream": "lifecycle", "data": { "phase": "end" } } }
+  { "type": "event", "event": "chat", "payload": { "state": "final", "message": { "role": "assistant", "content": "..." } } }
+  ```
+
+### 客户端改动
+
+- `src/openclaw-provider.js`：
+  - `chat.send` 改用真实格式（`idempotencyKey` + 字符串 `message`）；
+  - 事件映射增加 `agent` 的 `lifecycle/end` 与 `chat` 的 `delta/final`。
+- `scripts/openclaw-mock-server.cjs` 与 `test/openclaw-provider.test.js` 同步新格式。
+- `npm test` 全绿（22/22）。
+
+### 遗留限制
+
+- **Tailscale 远程 connect 不稳定**：从本地 Windows 经 `ws://100.69.11.71:18789` 连入时，WebSocket 握手偶发超时（HTTP 200 正常）；同一脚本在 VPS 本机 loopback 始终成功。可能是 Tailscale Windows 路由/防火墙间歇性问题，不影响 R4b 核心结论（真实 gateway 协议已跑通）。
+- **远程 auth 策略**：真实 gateway 对非 loopback 连接使用 `gateway.remote.token` 校验。当前配置下 shared-secret token 只能认证、不授权；device token 远程连接触发 `AUTH_TOKEN_MISMATCH`。生产部署需由网关管理员显式配置远程 token 策略，本仓库侧只负责协议实现。
+
+### 结论
+
+**R4b 通过。** 真实 OpenClaw gateway（Gray-Cloud VPS，版本 2026.4.14）已完成：
+- 一次性节点配对；
+- device token 签发；
+- `chat.send` 真实流式 chat；
+- provider 事件映射正确。
+
+下一步（R4b 之后）：解决 Tailscale 远程连接稳定性或公网防火墙放通，使 Android/桌面客户端能稳定走 Tailscale/公网连入。
