@@ -28,6 +28,8 @@ interface AiVaultChatSettings {
   clientId: string;
   peerAgent: 'main' | 'device';
   sessionEntry: 'note' | 'main';
+  remoteLabel: string;
+  credentialNote: string;
   gatewayInstallDir: string;
   gatewayAutoStart: boolean;
 }
@@ -44,6 +46,8 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   clientId: 'gateway-client',
   peerAgent: 'main',
   sessionEntry: 'note',
+  remoteLabel: '',
+  credentialNote: '',
   gatewayInstallDir: 'C:/Users/22414/dev/deepseek-device-skill',
   gatewayAutoStart: true,
 };
@@ -59,7 +63,9 @@ function peerAgentToHeaderId(peerAgent: 'main' | 'device'): string {
   return peerAgent === 'device' ? 'device' : 'gray';
 }
 
-function peerAgentDisplay(peerAgent: 'main' | 'device'): string {
+function peerAgentDisplay(peerAgent: 'main' | 'device', remoteLabel: string): string {
+  const trimmed = remoteLabel.trim();
+  if (trimmed) return trimmed;
   return peerAgent === 'device' ? 'device' : '格雷';
 }
 
@@ -292,7 +298,7 @@ class AiVaultChatView extends ItemView {
 
   private identityText(): string {
     if (this.currentRoute !== 'openclaw') return '本地';
-    const peer = peerAgentDisplay(this.plugin.settings.peerAgent);
+    const peer = peerAgentDisplay(this.plugin.settings.peerAgent, this.plugin.settings.remoteLabel);
     const entry = sessionEntryDisplay(this.currentSessionEntry);
     return `远程 · ${peer} · ${entry}`;
   }
@@ -645,6 +651,32 @@ class AiVaultChatSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.sessionEntry)
           .onChange(async (value) => {
             this.plugin.settings.sessionEntry = value as 'note' | 'main';
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('远程显示名称')
+      .setDesc('身份头部显示的自定义名称；留空则按对侧代理自动显示（main=格雷，device=device）。')
+      .addText((text) =>
+        text
+          .setPlaceholder('格雷')
+          .setValue(this.plugin.settings.remoteLabel)
+          .onChange(async (value) => {
+            this.plugin.settings.remoteLabel = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('凭证备注')
+      .setDesc('仅供自己识别的备注，不进入任何请求。')
+      .addText((text) =>
+        text
+          .setPlaceholder('例如：Tailscale 内网 / 公网')
+          .setValue(this.plugin.settings.credentialNote)
+          .onChange(async (value) => {
+            this.plugin.settings.credentialNote = value;
             await this.plugin.saveSettings();
           })
       );

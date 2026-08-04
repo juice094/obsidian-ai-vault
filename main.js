@@ -1259,6 +1259,8 @@ var DEFAULT_SETTINGS = {
   clientId: "gateway-client",
   peerAgent: "main",
   sessionEntry: "note",
+  remoteLabel: "",
+  credentialNote: "",
   gatewayInstallDir: "C:/Users/22414/dev/deepseek-device-skill",
   gatewayAutoStart: true
 };
@@ -1271,7 +1273,9 @@ function modelToGatewayModel(model, route) {
 function peerAgentToHeaderId(peerAgent) {
   return peerAgent === "device" ? "device" : "gray";
 }
-function peerAgentDisplay(peerAgent) {
+function peerAgentDisplay(peerAgent, remoteLabel) {
+  const trimmed = remoteLabel.trim();
+  if (trimmed) return trimmed;
   return peerAgent === "device" ? "device" : "\u683C\u96F7";
 }
 function sessionEntryDisplay(entry) {
@@ -1452,7 +1456,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
   }
   identityText() {
     if (this.currentRoute !== "openclaw") return "\u672C\u5730";
-    const peer = peerAgentDisplay(this.plugin.settings.peerAgent);
+    const peer = peerAgentDisplay(this.plugin.settings.peerAgent, this.plugin.settings.remoteLabel);
     const entry = sessionEntryDisplay(this.currentSessionEntry);
     return `\u8FDC\u7A0B \xB7 ${peer} \xB7 ${entry}`;
   }
@@ -1715,6 +1719,18 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u4F1A\u8BDD\u5165\u53E3").setDesc("\u4EC5 OpenClaw \u8DEF\u7531\u751F\u6548\u3002\u7B14\u8BB0\u4F1A\u8BDD = \u6BCF\u4E2A md \u9694\u79BB\uFF1B\u4E3B\u4F1A\u8BDD\u6302\u63A5 = \u4E0E Kimi \u5BA2\u6237\u7AEF\u5171\u4EAB\u683C\u96F7\u4E3B\u4F1A\u8BDD\u3002").addDropdown(
       (drop) => drop.addOption("note", "\u7B14\u8BB0\u4F1A\u8BDD\uFF08\u9694\u79BB\uFF09").addOption("main", "\u4E3B\u4F1A\u8BDD\u6302\u63A5\uFF08\u4E0E Kimi \u5BA2\u6237\u7AEF\u5171\u4EAB\uFF09").setValue(this.plugin.settings.sessionEntry).onChange(async (value) => {
         this.plugin.settings.sessionEntry = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u8FDC\u7A0B\u663E\u793A\u540D\u79F0").setDesc("\u8EAB\u4EFD\u5934\u90E8\u663E\u793A\u7684\u81EA\u5B9A\u4E49\u540D\u79F0\uFF1B\u7559\u7A7A\u5219\u6309\u5BF9\u4FA7\u4EE3\u7406\u81EA\u52A8\u663E\u793A\uFF08main=\u683C\u96F7\uFF0Cdevice=device\uFF09\u3002").addText(
+      (text) => text.setPlaceholder("\u683C\u96F7").setValue(this.plugin.settings.remoteLabel).onChange(async (value) => {
+        this.plugin.settings.remoteLabel = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u51ED\u8BC1\u5907\u6CE8").setDesc("\u4EC5\u4F9B\u81EA\u5DF1\u8BC6\u522B\u7684\u5907\u6CE8\uFF0C\u4E0D\u8FDB\u5165\u4EFB\u4F55\u8BF7\u6C42\u3002").addText(
+      (text) => text.setPlaceholder("\u4F8B\u5982\uFF1ATailscale \u5185\u7F51 / \u516C\u7F51").setValue(this.plugin.settings.credentialNote).onChange(async (value) => {
+        this.plugin.settings.credentialNote = value;
         await this.plugin.saveSettings();
       })
     );

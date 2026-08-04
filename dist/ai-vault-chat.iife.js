@@ -257,7 +257,60 @@ ${lines.join("\n")}
 
 `;
   }
-  function buildMessages(parsed, { tokenBudgetChars }) {
+  var WIKILINK_RE = /\[\[([^|\]\n]+?)(?:\|[^\]\n]+?)?\]\]/g;
+  function extractWikilinks(text) {
+    const seen = /* @__PURE__ */ new Set();
+    const results = [];
+    for (const m of text.matchAll(WIKILINK_RE)) {
+      const name = m[1].trim();
+      if (!seen.has(name)) {
+        seen.add(name);
+        results.push(name);
+      }
+    }
+    return results;
+  }
+  async function resolveWikilinks(userText, vaultIO, { budgetChars = 6e3, onMissing }) {
+    const links = extractWikilinks(userText);
+    if (links.length === 0) return { contextMessages: [], missing: [] };
+    const contextParts = [];
+    const missing = [];
+    let usedChars = 0;
+    for (const link of links) {
+      if (usedChars >= budgetChars) break;
+      const path = `${link}.md`;
+      const exists = await vaultIO.exists(path);
+      if (!exists) {
+        missing.push(link);
+        continue;
+      }
+      const content = await vaultIO.read(path);
+      if (!content) {
+        missing.push(link);
+        continue;
+      }
+      const remaining = budgetChars - usedChars;
+      let body = content;
+      let truncated = false;
+      if (body.length > remaining) {
+        body = body.slice(0, remaining) + "\n\uFF08\u5DF2\u622A\u65AD\uFF09";
+        truncated = true;
+      }
+      usedChars += body.length;
+      contextParts.push({ link, content: body, truncated });
+    }
+    if (missing.length > 0 && onMissing) {
+      onMissing(missing);
+    }
+    if (contextParts.length === 0) return { contextMessages: [], missing };
+    const systemContent = contextParts.map((p) => `\u53C2\u8003\u7B14\u8BB0\u300A${p.link}\u300B\uFF1A
+${p.content}`).join("\n\n---\n\n");
+    return {
+      contextMessages: [{ role: "system", content: systemContent }],
+      missing
+    };
+  }
+  function buildMessages(parsed, { tokenBudgetChars, contextMessages = [] }) {
     const messages = [];
     const budget = tokenBudgetChars != null ? tokenBudgetChars : Infinity;
     const includedTurns = parsed.turns.filter((t) => !t.inProgress);
@@ -265,6 +318,7 @@ ${lines.join("\n")}
     if (parsed.summary) {
       messages.push({ role: "user", content: `\u524D\u60C5\u6458\u8981\uFF1A${parsed.summary.text}` });
     }
+    messages.push(...contextMessages);
     const turnPairs = [];
     for (const turn of includedTurns) {
       if (turn.id !== null && turn.id <= startTurn) continue;
@@ -301,8 +355,10 @@ ${lines.join("\n")}
 
   // src/openai-compat-provider.js
   var OpenAICompatProvider = class {
-    constructor({ gatewayUrl }) {
+    constructor({ gatewayUrl, apiKey, headers }) {
       this.gatewayUrl = gatewayUrl.replace(/\/$/, "");
+      this.apiKey = apiKey || "";
+      this.extraHeaders = headers || {};
     }
     async *streamChat({ messages, model, thinking, search, signal }) {
       const payload = {
@@ -310,9 +366,14 @@ ${lines.join("\n")}
         messages,
         stream: true
       };
+      const headers = {
+        "Content-Type": "application/json",
+        ...this.extraHeaders
+      };
+      if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
       const response = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
         signal
       });
@@ -322,6 +383,7 @@ ${lines.join("\n")}
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      const toolBuffers = /* @__PURE__ */ new Map();
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -330,33 +392,63 @@ ${lines.join("\n")}
           const lines = buf.split("\n");
           buf = lines.pop();
           for (const line of lines) {
-            const result = this._processSseLine(line);
-            if (result) yield result;
+            const results = this._processSseLine(line, toolBuffers);
+            if (results) {
+              for (const result of Array.isArray(results) ? results : [results]) {
+                yield result;
+              }
+            }
           }
         }
       } finally {
         reader.releaseLock();
       }
     }
-    _processSseLine(line) {
-      var _a, _b, _c, _d, _e, _f;
+    _processSseLine(line, toolBuffers) {
+      var _a, _b, _c, _d;
       const trimmed = line.trim();
       if (!trimmed.startsWith("data:")) return null;
       const data = trimmed.slice(5).trim();
       if (data === "[DONE]") return null;
       try {
         const chunk = JSON.parse(data);
-        const delta = (_b = (_a = chunk.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta;
-        if (!delta) {
-          if ((_d = (_c = chunk.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.finish_reason) {
-            return { type: "finish", usage: chunk.usage };
+        const choice = (_a = chunk.choices) == null ? void 0 : _a[0];
+        const delta = choice == null ? void 0 : choice.delta;
+        const finishReason = choice == null ? void 0 : choice.finish_reason;
+        if (delta == null ? void 0 : delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = (_b = tc.index) != null ? _b : 0;
+            const existing = toolBuffers.get(idx) || { id: "", type: "", name: "", args: "" };
+            if (tc.id) existing.id = tc.id;
+            if (tc.type) existing.type = tc.type;
+            if ((_c = tc.function) == null ? void 0 : _c.name) existing.name = tc.function.name;
+            if ((_d = tc.function) == null ? void 0 : _d.arguments) existing.args += tc.function.arguments;
+            toolBuffers.set(idx, existing);
           }
-          return null;
         }
-        if (delta.content) return { type: "content", delta: delta.content };
-        if (delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
-        if (delta.search_results) return { type: "search_results", results: delta.search_results };
-        if ((_f = (_e = chunk.choices) == null ? void 0 : _e[0]) == null ? void 0 : _f.finish_reason) {
+        if (finishReason === "tool_calls") {
+          const queries = [];
+          for (const tc of toolBuffers.values()) {
+            let args = {};
+            try {
+              args = JSON.parse(tc.args);
+            } catch (e) {
+            }
+            const query = args.query || args.q || args.search || tc.name;
+            if (query) queries.push(query);
+          }
+          toolBuffers.clear();
+          const events = [];
+          if (queries.length > 0) {
+            events.push({ type: "search_results", results: { queries, results: [] } });
+          }
+          events.push({ type: "finish", usage: chunk.usage });
+          return events;
+        }
+        if (delta == null ? void 0 : delta.content) return { type: "content", delta: delta.content };
+        if (delta == null ? void 0 : delta.reasoning_content) return { type: "reasoning", delta: delta.reasoning_content };
+        if (delta == null ? void 0 : delta.search_results) return { type: "search_results", results: delta.search_results };
+        if (finishReason) {
           return { type: "finish", usage: chunk.usage };
         }
         return null;
@@ -662,8 +754,8 @@ ${lines.join("\n")}
     };
     return Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n");
   }
-  function makeMeta({ turnId, userTextLen, model, usage, route }) {
-    return {
+  function makeMeta({ turnId, userTextLen, model, usage, route, peerAgent, sessionEntry }) {
+    const meta = {
       user_msg: String(userTextLen),
       ai_msg: String(turnId),
       model,
@@ -671,6 +763,11 @@ ${lines.join("\n")}
       tokens: usage ? String(usage.total_tokens) : "",
       time: nowIso()
     };
+    if (route === "openclaw") {
+      if (peerAgent) meta.agent = peerAgent;
+      if (sessionEntry) meta.entry = sessionEntry;
+    }
+    return meta;
   }
   var SessionEngine = class {
     constructor({
@@ -685,7 +782,11 @@ ${lines.join("\n")}
       openclawUrl,
       openclawToken,
       clientId,
-      route = "local"
+      route = "local",
+      sessionKey,
+      agentId,
+      peerAgent = "main",
+      sessionEntry = "note"
     }) {
       this.gatewayUrl = gatewayUrl ? gatewayUrl.replace(/\/$/, "") : "";
       this.model = model;
@@ -699,6 +800,16 @@ ${lines.join("\n")}
       this.sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
       this.abortController = null;
       this.route = route || "local";
+      this.peerAgent = peerAgent || "main";
+      this.agentId = agentId || (this.peerAgent === "device" ? "device" : "gray");
+      this.sessionEntry = sessionEntry || "note";
+      if (sessionKey) {
+        this.sessionKey = sessionKey;
+      } else if (this.route === "openclaw") {
+        this.sessionKey = this.sessionEntry === "main" ? "agent:main:main" : `obsidian-${this.sessionId}`;
+      } else {
+        this.sessionKey = "";
+      }
       this.provider = this._resolveProvider({
         provider,
         gatewayUrl,
@@ -713,7 +824,18 @@ ${lines.join("\n")}
       }
       const name = provider || "openai-compat";
       if (name === "openai-compat") {
-        return new OpenAICompatProvider({ gatewayUrl });
+        const isOpenclaw = this.route === "openclaw";
+        const url = isOpenclaw ? openclawUrl : gatewayUrl;
+        const headers = {};
+        if (isOpenclaw) {
+          if (this.sessionKey) headers["x-openclaw-session-key"] = this.sessionKey;
+          if (this.agentId) headers["x-openclaw-agent-id"] = this.agentId;
+        }
+        return new OpenAICompatProvider({
+          gatewayUrl: url,
+          apiKey: isOpenclaw ? openclawToken : "",
+          headers
+        });
       }
       if (name === "openclaw") {
         if (!openclawUrl) throw new Error("OpenClaw route requires openclawUrl");
@@ -752,7 +874,12 @@ ${lines.join("\n")}
         let updated = appendTurn(md, userTurn);
         await this.vaultIO.write(this.sessionPath, updated);
         this.onEvent({ type: "user-saved", path: this.sessionPath });
-        const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
+        const contextBudget = Math.floor(this.tokenBudgetChars * 0.5);
+        const { contextMessages } = await resolveWikilinks(userText, this.vaultIO, {
+          budgetChars: contextBudget,
+          onMissing: (names) => this.onEvent({ type: "reference-missing", names })
+        });
+        const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars, contextMessages });
         const stream = this.provider.streamChat({
           messages,
           model: this.model,
@@ -840,7 +967,7 @@ ${lines.join("\n")}
       await flush(true);
       const finalTurn = {
         ...turnState,
-        meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route }),
+        meta: makeMeta({ turnId: turn.id, userTextLen: turn.userText.length, model: this.model, usage, route: this.route, peerAgent: this.peerAgent, sessionEntry: this.sessionEntry }),
         inProgress: false
       };
       return { md: prefix + serializeTurn(finalTurn) };
