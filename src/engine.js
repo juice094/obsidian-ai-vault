@@ -1,4 +1,4 @@
-import { parseSession, serializeTurn, appendTurn, writeSummary, buildMessages } from './format.js';
+import { parseSession, serializeTurn, appendTurn, writeSummary, buildMessages, resolveWikilinks } from './format.js';
 import { SUMMARY_PROMPT } from './prompts.js';
 import { OpenAICompatProvider } from './openai-compat-provider.js';
 import { OpenClawProvider } from './openclaw-provider.js';
@@ -163,7 +163,12 @@ export class SessionEngine {
       await this.vaultIO.write(this.sessionPath, updated);
       this.onEvent({ type: 'user-saved', path: this.sessionPath });
 
-      const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
+      const contextBudget = Math.floor(this.tokenBudgetChars * 0.5);
+      const { contextMessages } = await resolveWikilinks(userText, this.vaultIO, {
+        budgetChars: contextBudget,
+        onMissing: (names) => this.onEvent({ type: 'reference-missing', names }),
+      });
+      const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars, contextMessages });
       const stream = this.provider.streamChat({
         messages,
         model: this.model,

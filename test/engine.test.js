@@ -396,6 +396,70 @@ writing...
     }
   });
 
+  it('injects referenced note content as system context and emits reference-missing for missing links', async () => {
+    const files = new Map();
+    files.set('旅行预算.md', '预算 5000 元，机票 3000。');
+    const dirs = new Set();
+    const vaultIO = {
+      read: async (path) => files.get(path) || '',
+      write: async (path, text) => files.set(path, text),
+      append: async (path, text) => files.set(path, (files.get(path) || '') + text),
+      exists: async (path) => files.has(path),
+      rename: async (oldPath, newPath) => {
+        const text = files.get(oldPath);
+        files.delete(oldPath);
+        files.set(newPath, text);
+      },
+      mkdir: async (path) => { dirs.add(path); },
+      _files: files,
+      _dirs: dirs,
+    };
+
+    let receivedBody = null;
+    let missingEvent = null;
+    const { server, url } = await startMockServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        receivedBody = JSON.parse(body);
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.end(mockSseStream());
+      });
+    });
+
+    try {
+      const engine = new SessionEngine({
+        gatewayUrl: url,
+        model: 'deepseek-chat',
+        thinking: false,
+        search: false,
+        vaultIO,
+        tokenBudgetChars: 100000,
+        onEvent: (e) => {
+          if (e.type === 'reference-missing') missingEvent = e;
+        },
+      });
+      await engine.send('根据 [[旅行预算]] 和 [[不存在的笔记]] 给建议');
+
+      assert.ok(receivedBody);
+      const systemMessages = receivedBody.messages.filter((m) => m.role === 'system');
+      assert.equal(systemMessages.length, 1);
+      assert.ok(systemMessages[0].content.includes('旅行预算'));
+      assert.ok(systemMessages[0].content.includes('预算 5000 元'));
+      assert.ok(!systemMessages[0].content.includes('不存在的笔记'));
+
+      assert.ok(missingEvent);
+      assert.deepEqual(missingEvent.names, ['不存在的笔记']);
+
+      const md = vaultIO._files.get(engine.sessionPath);
+      // md 中 user callout 只保留原始链接，不注入全文
+      assert.ok(md.includes('[[旅行预算]]'));
+      assert.ok(!md.includes('预算 5000 元'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('emits user-saved event with the new session path so the view can switch to it', async () => {
     const vaultIO = makeVaultIO();
     const events = [];

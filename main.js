@@ -282,7 +282,60 @@ ${lines.join("\n")}
 
 `;
 }
-function buildMessages(parsed, { tokenBudgetChars }) {
+var WIKILINK_RE = /\[\[([^|\]\n]+?)(?:\|[^\]\n]+?)?\]\]/g;
+function extractWikilinks(text) {
+  const seen = /* @__PURE__ */ new Set();
+  const results = [];
+  for (const m of text.matchAll(WIKILINK_RE)) {
+    const name = m[1].trim();
+    if (!seen.has(name)) {
+      seen.add(name);
+      results.push(name);
+    }
+  }
+  return results;
+}
+async function resolveWikilinks(userText, vaultIO, { budgetChars = 6e3, onMissing }) {
+  const links = extractWikilinks(userText);
+  if (links.length === 0) return { contextMessages: [], missing: [] };
+  const contextParts = [];
+  const missing = [];
+  let usedChars = 0;
+  for (const link of links) {
+    if (usedChars >= budgetChars) break;
+    const path = `${link}.md`;
+    const exists = await vaultIO.exists(path);
+    if (!exists) {
+      missing.push(link);
+      continue;
+    }
+    const content = await vaultIO.read(path);
+    if (!content) {
+      missing.push(link);
+      continue;
+    }
+    const remaining = budgetChars - usedChars;
+    let body = content;
+    let truncated = false;
+    if (body.length > remaining) {
+      body = body.slice(0, remaining) + "\n\uFF08\u5DF2\u622A\u65AD\uFF09";
+      truncated = true;
+    }
+    usedChars += body.length;
+    contextParts.push({ link, content: body, truncated });
+  }
+  if (missing.length > 0 && onMissing) {
+    onMissing(missing);
+  }
+  if (contextParts.length === 0) return { contextMessages: [], missing };
+  const systemContent = contextParts.map((p) => `\u53C2\u8003\u7B14\u8BB0\u300A${p.link}\u300B\uFF1A
+${p.content}`).join("\n\n---\n\n");
+  return {
+    contextMessages: [{ role: "system", content: systemContent }],
+    missing
+  };
+}
+function buildMessages(parsed, { tokenBudgetChars, contextMessages = [] }) {
   const messages = [];
   const budget = tokenBudgetChars != null ? tokenBudgetChars : Infinity;
   const includedTurns = parsed.turns.filter((t) => !t.inProgress);
@@ -290,6 +343,7 @@ function buildMessages(parsed, { tokenBudgetChars }) {
   if (parsed.summary) {
     messages.push({ role: "user", content: `\u524D\u60C5\u6458\u8981\uFF1A${parsed.summary.text}` });
   }
+  messages.push(...contextMessages);
   const turnPairs = [];
   for (const turn of includedTurns) {
     if (turn.id !== null && turn.id <= startTurn) continue;
@@ -845,7 +899,12 @@ var SessionEngine = class {
       let updated = appendTurn(md, userTurn);
       await this.vaultIO.write(this.sessionPath, updated);
       this.onEvent({ type: "user-saved", path: this.sessionPath });
-      const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars });
+      const contextBudget = Math.floor(this.tokenBudgetChars * 0.5);
+      const { contextMessages } = await resolveWikilinks(userText, this.vaultIO, {
+        budgetChars: contextBudget,
+        onMissing: (names) => this.onEvent({ type: "reference-missing", names })
+      });
+      const messages = buildMessages(parseSession(updated), { tokenBudgetChars: this.tokenBudgetChars, contextMessages });
       const stream = this.provider.streamChat({
         messages,
         model: this.model,

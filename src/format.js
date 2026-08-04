@@ -276,7 +276,69 @@ function frontmatterText(frontmatter) {
   return `---\n${lines.join('\n')}\n---\n\n`;
 }
 
-export function buildMessages(parsed, { tokenBudgetChars }) {
+const WIKILINK_RE = /\[\[([^|\]\n]+?)(?:\|[^\]\n]+?)?\]\]/g;
+
+export function extractWikilinks(text) {
+  const seen = new Set();
+  const results = [];
+  for (const m of text.matchAll(WIKILINK_RE)) {
+    const name = m[1].trim();
+    if (!seen.has(name)) {
+      seen.add(name);
+      results.push(name);
+    }
+  }
+  return results;
+}
+
+export async function resolveWikilinks(userText, vaultIO, { budgetChars = 6000, onMissing }) {
+  const links = extractWikilinks(userText);
+  if (links.length === 0) return { contextMessages: [], missing: [] };
+
+  const contextParts = [];
+  const missing = [];
+  let usedChars = 0;
+
+  for (const link of links) {
+    if (usedChars >= budgetChars) break;
+    const path = `${link}.md`;
+    const exists = await vaultIO.exists(path);
+    if (!exists) {
+      missing.push(link);
+      continue;
+    }
+    const content = await vaultIO.read(path);
+    if (!content) {
+      missing.push(link);
+      continue;
+    }
+    const remaining = budgetChars - usedChars;
+    let body = content;
+    let truncated = false;
+    if (body.length > remaining) {
+      body = body.slice(0, remaining) + '\n（已截断）';
+      truncated = true;
+    }
+    usedChars += body.length;
+    contextParts.push({ link, content: body, truncated });
+  }
+
+  if (missing.length > 0 && onMissing) {
+    onMissing(missing);
+  }
+
+  if (contextParts.length === 0) return { contextMessages: [], missing };
+
+  const systemContent = contextParts
+    .map((p) => `参考笔记《${p.link}》：\n${p.content}`)
+    .join('\n\n---\n\n');
+  return {
+    contextMessages: [{ role: 'system', content: systemContent }],
+    missing,
+  };
+}
+
+export function buildMessages(parsed, { tokenBudgetChars, contextMessages = [] }) {
   const messages = [];
   const budget = tokenBudgetChars ?? Infinity;
 
@@ -287,6 +349,9 @@ export function buildMessages(parsed, { tokenBudgetChars }) {
   if (parsed.summary) {
     messages.push({ role: 'user', content: `前情摘要：${parsed.summary.text}` });
   }
+
+  // 注入当前 turn 解析出的上下文段（不写入 md）
+  messages.push(...contextMessages);
 
   // 按轮次组装成对消息，便于整轮丢弃
   const turnPairs = [];
@@ -303,7 +368,7 @@ export function buildMessages(parsed, { tokenBudgetChars }) {
     if (pair.length) turnPairs.push(pair);
   }
 
-  // 预算裁剪：丢最旧轮次（summary 保留）
+  // 预算裁剪：summary 与上下文段保留，丢最旧轮次
   let totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
   const kept = [];
   for (let i = turnPairs.length - 1; i >= 0; i--) {

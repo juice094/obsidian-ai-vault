@@ -15,6 +15,7 @@ export interface EngineEvent {
   results?: unknown[];
   coversTurn?: number;
   error?: string;
+  names?: string[];
 }
 
 export interface StreamChatOptions {

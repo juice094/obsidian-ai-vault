@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSession, serializeTurn, appendTurn, writeSummary, buildMessages } from '../src/format.js';
+import { parseSession, serializeTurn, appendTurn, writeSummary, buildMessages, extractWikilinks, resolveWikilinks } from '../src/format.js';
 
 const sampleMd = `---
 chat_format: 1
@@ -222,5 +222,84 @@ writing...
       .reduce((sum, m) => sum + m.content.length, 0);
     const messagesMedium = buildMessages(parsed, { tokenBudgetChars: summaryLen + pairLen });
     assert.ok(messagesMedium.some(m => m.role === 'assistant' && m.content.includes('冲突副本')));
+  });
+
+  it('includes contextMessages in budget and drops history before summary', () => {
+    const parsed = parseSession(sampleMd);
+    const contextMessages = [{ role: 'system', content: 'context'.repeat(100) }];
+    const messages = buildMessages(parsed, { tokenBudgetChars: 100000, contextMessages });
+    assert.ok(messages.some(m => m.role === 'system' && m.content.includes('context')));
+
+    // 当上下文段占满预算时，历史轮次要被丢弃
+    const tight = buildMessages(parsed, { tokenBudgetChars: contextMessages[0].content.length + 5, contextMessages });
+    assert.equal(tight.length, 2); // summary + context
+    assert.ok(!tight.some(m => m.role === 'assistant'));
+  });
+});
+
+describe('extractWikilinks', () => {
+  it('extracts simple wikilinks', () => {
+    assert.deepEqual(extractWikilinks('请看 [[笔记A]] 和 [[笔记B]]'), ['笔记A', '笔记B']);
+  });
+
+  it('extracts link text before display alias', () => {
+    assert.deepEqual(extractWikilinks('[[笔记A|显示名]]'), ['笔记A']);
+  });
+
+  it('deduplicates repeated links', () => {
+    assert.deepEqual(extractWikilinks('[[笔记A]] [[笔记A]]'), ['笔记A']);
+  });
+
+  it('returns empty array when no links', () => {
+    assert.deepEqual(extractWikilinks('plain text'), []);
+  });
+});
+
+describe('resolveWikilinks', () => {
+  function makeVaultIO(entries) {
+    return {
+      read: async (path) => entries[path] || '',
+      exists: async (path) => path in entries,
+    };
+  }
+
+  it('resolves existing notes into a system context message', async () => {
+    const vaultIO = makeVaultIO({
+      '笔记A.md': '内容A',
+      '笔记B.md': '内容B',
+    });
+    const result = await resolveWikilinks('[[笔记A]] [[笔记B]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.equal(result.contextMessages[0].role, 'system');
+    assert.ok(result.contextMessages[0].content.includes('参考笔记《笔记A》'));
+    assert.ok(result.contextMessages[0].content.includes('参考笔记《笔记B》'));
+    assert.deepEqual(result.missing, []);
+  });
+
+  it('reports missing notes without blocking', async () => {
+    const missing = [];
+    const vaultIO = makeVaultIO({ '笔记A.md': '内容A' });
+    const result = await resolveWikilinks('[[笔记A]] [[不存在]]', vaultIO, {
+      budgetChars: 10000,
+      onMissing: (names) => missing.push(...names),
+    });
+    assert.equal(result.contextMessages.length, 1);
+    assert.deepEqual(missing, ['不存在']);
+    assert.deepEqual(result.missing, ['不存在']);
+  });
+
+  it('truncates long notes within budget', async () => {
+    const vaultIO = makeVaultIO({ '长笔记.md': 'x'.repeat(200) });
+    const result = await resolveWikilinks('[[长笔记]]', vaultIO, { budgetChars: 50 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('x'.repeat(40)));
+    assert.ok(result.contextMessages[0].content.includes('已截断'));
+  });
+
+  it('returns empty context when all links missing', async () => {
+    const vaultIO = makeVaultIO({});
+    const result = await resolveWikilinks('[[不存在]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 0);
+    assert.deepEqual(result.missing, ['不存在']);
   });
 });

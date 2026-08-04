@@ -1,0 +1,12 @@
+{
+  "url": "http://127.0.0.1:52920",
+  "sessionPath": "AI 会话/2026-08-04 [[Seattle]] 的地标有多高？顺便问 [[不存在的笔.md",
+  "hasSystemContext": true,
+  "userMessageContainsWikilink": true,
+  "mdUserCalloutHasLinkOnly": true,
+  "missingEventNames": [
+    "不存在的笔记"
+  ],
+  "ok": true,
+  "testedAt": "2026-08-04T01:42:38.725Z"
+}
