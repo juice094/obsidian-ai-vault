@@ -1035,6 +1035,157 @@ ${warning}
   }
 };
 
+// src/gateway-manager.js
+var import_node_child_process = require("node:child_process");
+var import_node_fs = require("node:fs");
+var GatewayManager = class {
+  constructor({ gatewayUrl, installDir, port, autoStart = true, spawnFn = import_node_child_process.spawn }) {
+    this.gatewayUrl = (gatewayUrl || `http://127.0.0.1:${port}`).replace(/\/$/, "");
+    this.installDir = installDir || "";
+    this.port = port || 18791;
+    this.autoStart = autoStart;
+    this.spawnFn = spawnFn;
+    this.process = null;
+    this.status = "unknown";
+    this.statusMessage = "";
+  }
+  /** 探测 /health，返回是否就绪 */
+  async probe(timeoutMs = 1500) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${this.gatewayUrl}/health`, { signal: controller.signal });
+      if (res.ok) {
+        this.status = "ready";
+        this.statusMessage = "gateway \u5C31\u7EEA";
+        return true;
+      }
+    } catch (e) {
+    } finally {
+      clearTimeout(timer);
+    }
+    return false;
+  }
+  /** 确保 gateway 就绪；必要时自动拉起 */
+  async ensureReady() {
+    if (await this.probe()) {
+      return { ok: true, started: false };
+    }
+    if (!this.autoStart) {
+      this.status = "unreachable";
+      return {
+        ok: false,
+        error: "\u672C\u5730 gateway \u672A\u8FD0\u884C\uFF0C\u4E14\u81EA\u52A8\u62C9\u8D77\u5DF2\u5173\u95ED\u3002\u8BF7\u5728\u8BBE\u7F6E\u9875\u68C0\u67E5\u5B89\u88C5\u76EE\u5F55\uFF0C\u6216\u5207\u6362 OpenClaw \u8FDC\u7A0B\u8DEF\u7531\u3002"
+      };
+    }
+    return this._startAndWait();
+  }
+  async _startAndWait() {
+    this.status = "starting";
+    const spawned = await this._spawnGateway();
+    if (!spawned) {
+      this.status = "error";
+      return {
+        ok: false,
+        error: `\u81EA\u52A8\u62C9\u8D77\u672C\u5730 gateway \u5931\u8D25\uFF1A${this.statusMessage}\u3002\u8BF7\u68C0\u67E5\u8BBE\u7F6E\u9875\u5B89\u88C5\u76EE\u5F55\u3001\u786E\u8BA4\u5DF2\u6267\u884C cargo build --release\u3002`
+      };
+    }
+    const ready = await this._pollReady(8e3, 300);
+    if (!ready) {
+      this._kill();
+      this.status = "error";
+      return {
+        ok: false,
+        error: "\u672C\u5730 gateway \u542F\u52A8\u8D85\u65F6\uFF088s\uFF09\u3002\u8BF7\u68C0\u67E5\u7AEF\u53E3\u5360\u7528\u3001\u51ED\u8BC1\u6587\u4EF6 dds-cred.txt \u662F\u5426\u5B58\u5728\uFF0C\u6216\u624B\u52A8\u8FD0\u884C gateway \u770B\u65E5\u5FD7\u3002"
+      };
+    }
+    this.status = "ready";
+    return { ok: true, started: true };
+  }
+  _spawnGateway() {
+    return new Promise((resolve) => {
+      const binary = this._binaryPath();
+      if (!(0, import_node_fs.existsSync)(binary)) {
+        this.statusMessage = `\u672A\u627E\u5230\u4E8C\u8FDB\u5236\uFF1A${binary}`;
+        resolve(false);
+        return;
+      }
+      const args = ["serve", "--host", "127.0.0.1", "--port", String(this.port)];
+      let settled = false;
+      try {
+        this.process = this.spawnFn(binary, args, {
+          cwd: this.installDir,
+          stdio: "ignore",
+          detached: false
+        });
+      } catch (err) {
+        this.statusMessage = err.message;
+        resolve(false);
+        return;
+      }
+      this.process.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          this.statusMessage = err.message;
+          resolve(false);
+        }
+      });
+      this.process.on("spawn", () => {
+        if (!settled) {
+          settled = true;
+          resolve(true);
+        }
+      });
+      this.process.on("exit", (code) => {
+        if (!settled) {
+          settled = true;
+          this.statusMessage = `\u8FDB\u7A0B\u9000\u51FA\uFF0C\u7801 ${code != null ? code : "unknown"}`;
+          resolve(false);
+        } else if (this.status === "starting" || this.status === "ready") {
+          this.status = "error";
+          this.statusMessage = `gateway \u5F02\u5E38\u9000\u51FA\uFF0C\u7801 ${code != null ? code : "unknown"}`;
+        }
+      });
+    });
+  }
+  _binaryPath() {
+    const base = `${this.installDir}/target/release/deepseek-device-skill`;
+    return process.platform === "win32" ? `${base}.exe` : base;
+  }
+  async _pollReady(totalMs, intervalMs) {
+    const start = Date.now();
+    while (Date.now() - start < totalMs) {
+      if (await this.probe(intervalMs)) return true;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return false;
+  }
+  /** 停止本管理器拉起的 gateway 进程 */
+  stop() {
+    this._kill();
+  }
+  _kill() {
+    if (this.process) {
+      try {
+        this.process.kill();
+      } catch (e) {
+      }
+      this.process = null;
+    }
+  }
+  /** 人类可读的状态文本 */
+  statusText() {
+    const map = {
+      ready: "\u7EFF\uFF1Agateway \u5C31\u7EEA",
+      starting: "\u9EC4\uFF1A\u6B63\u5728\u62C9\u8D77 gateway",
+      unreachable: "\u7EA2\uFF1Agateway \u4E0D\u53EF\u8FBE",
+      error: `\u7EA2\uFF1A${this.statusMessage || "gateway \u5F02\u5E38"}`,
+      unknown: "\u7070\uFF1A\u672A\u63A2\u6D4B"
+    };
+    return map[this.status] || `\u7070\uFF1A${this.status}`;
+  }
+};
+
 // main.ts
 var VIEW_TYPE_AI_CHAT = "ai-vault-chat-view";
 var DEFAULT_SETTINGS = {
@@ -1048,7 +1199,9 @@ var DEFAULT_SETTINGS = {
   openclawToken: "",
   clientId: "gateway-client",
   peerAgent: "main",
-  sessionEntry: "note"
+  sessionEntry: "note",
+  gatewayInstallDir: "C:/Users/22414/dev/deepseek-device-skill",
+  gatewayAutoStart: true
 };
 function modelToGatewayModel(model, route) {
   if (route === "openclaw") {
@@ -1067,6 +1220,14 @@ function sessionEntryDisplay(entry) {
 }
 function routeToProvider(route) {
   return route === "openclaw" ? "openclaw" : "openai-compat";
+}
+function urlToPort(url, fallback) {
+  try {
+    const u = new URL(url);
+    return parseInt(u.port, 10) || fallback;
+  } catch (e) {
+    return fallback;
+  }
 }
 function makeVaultIO(adapter) {
   return {
@@ -1347,8 +1508,17 @@ ${text}`;
     this.isStreaming = true;
     this.setInputEnabled(false);
     this.inputEl.value = "";
-    this.setStatus("\u601D\u8003\u4E2D\u2026");
+    this.setStatus("\u51C6\u5907 gateway\u2026");
     try {
+      if (this.currentRoute === "local") {
+        const ready = await this.plugin.gatewayManager.ensureReady();
+        if (!ready.ok) {
+          throw new Error(ready.error || "\u672C\u5730 gateway \u672A\u5C31\u7EEA");
+        }
+        if (ready.started) {
+          this.setStatus("gateway \u5DF2\u81EA\u52A8\u62C9\u8D77\uFF0C\u53D1\u9001\u4E2D\u2026");
+        }
+      }
       if (!this.engine) {
         this.engine = this.createEngine(null);
       }
@@ -1391,6 +1561,52 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("Gateway URL").setDesc("\u672C\u5730 deepseek-device-skill \u670D\u52A1\u5730\u5740\uFF08\u672C\u5730\u8DEF\u7531\u4F7F\u7528\uFF09").addText(
       (text) => text.setPlaceholder("http://127.0.0.1:18791").setValue(this.plugin.settings.gatewayUrl).onChange(async (value) => {
         this.plugin.settings.gatewayUrl = value;
+        this.plugin.gatewayManager = new GatewayManager({
+          gatewayUrl: value,
+          installDir: this.plugin.settings.gatewayInstallDir,
+          port: urlToPort(value, 18791),
+          autoStart: this.plugin.settings.gatewayAutoStart
+        });
+        await this.plugin.saveSettings();
+      })
+    );
+    containerEl.createEl("h3", { text: "\u672C\u5730 gateway" });
+    containerEl.createEl("p", {
+      text: "\u63D2\u4EF6\u5728\u672C\u5730\u8DEF\u7531\u53D1\u9001\u524D\u81EA\u52A8\u63A2\u6D4B\u5E76\u62C9\u8D77 deepseek-device-skill serve\uFF1B\u5378\u8F7D\u63D2\u4EF6\u65F6\u4F1A\u81EA\u52A8\u5173\u95ED\u81EA\u5DF1\u62C9\u8D77\u7684\u8FDB\u7A0B\u3002",
+      cls: "setting-item-description"
+    });
+    new import_obsidian.Setting(containerEl).setName("\u5B89\u88C5\u76EE\u5F55").setDesc("deepseek-device-skill \u4ED3\u5E93\u6839\u76EE\u5F55\uFF1B\u9700\u8981\u5305\u542B target/release/deepseek-device-skill.exe\uFF0C\u4E14\u76EE\u5F55\u4E0B\u6709 dds-cred.txt\u3002").addText(
+      (text) => text.setPlaceholder("C:/Users/22414/dev/deepseek-device-skill").setValue(this.plugin.settings.gatewayInstallDir).onChange(async (value) => {
+        this.plugin.settings.gatewayInstallDir = value;
+        this.plugin.gatewayManager = new GatewayManager({
+          gatewayUrl: this.plugin.settings.gatewayUrl,
+          installDir: value,
+          port: urlToPort(this.plugin.settings.gatewayUrl, 18791),
+          autoStart: this.plugin.settings.gatewayAutoStart
+        });
+        await this.plugin.saveSettings();
+      })
+    );
+    const statusSetting = new import_obsidian.Setting(containerEl).setName("\u72B6\u6001").setDesc("\u70B9\u51FB\u5237\u65B0");
+    const statusEl = statusSetting.controlEl.createEl("span", {
+      text: this.plugin.gatewayManager.statusText(),
+      cls: "ai-vault-gateway-status"
+    });
+    statusSetting.addButton(
+      (btn) => btn.setButtonText("\u5237\u65B0").onClick(async () => {
+        await this.plugin.gatewayManager.probe();
+        statusEl.textContent = this.plugin.gatewayManager.statusText();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u968F\u63D2\u4EF6\u81EA\u52A8\u62C9\u8D77").setDesc("\u5173\u95ED\u540E\uFF0Cgateway \u4E0D\u53EF\u8FBE\u65F6\u5C06\u4E0D\u518D\u81EA\u52A8\u542F\u52A8\uFF0C\u9700\u624B\u52A8\u8FD0\u884C\u3002").addToggle(
+      (t) => t.setValue(this.plugin.settings.gatewayAutoStart).onChange(async (value) => {
+        this.plugin.settings.gatewayAutoStart = value;
+        this.plugin.gatewayManager = new GatewayManager({
+          gatewayUrl: this.plugin.settings.gatewayUrl,
+          installDir: this.plugin.settings.gatewayInstallDir,
+          port: urlToPort(this.plugin.settings.gatewayUrl, 18791),
+          autoStart: value
+        });
         await this.plugin.saveSettings();
       })
     );
@@ -1468,6 +1684,12 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
 var AiVaultChatPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
+    this.gatewayManager = new GatewayManager({
+      gatewayUrl: this.settings.gatewayUrl,
+      installDir: this.settings.gatewayInstallDir,
+      port: urlToPort(this.settings.gatewayUrl, 18791),
+      autoStart: this.settings.gatewayAutoStart
+    });
     this.registerView(VIEW_TYPE_AI_CHAT, (leaf) => new AiVaultChatView(leaf, this));
     this.addRibbonIcon("message-square", "AI Vault Chat", () => {
       this.activateView();
@@ -1480,7 +1702,9 @@ var AiVaultChatPlugin = class extends import_obsidian.Plugin {
     this.addSettingTab(new AiVaultChatSettingTab(this.app, this));
   }
   onunload() {
+    var _a;
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_CHAT);
+    (_a = this.gatewayManager) == null ? void 0 : _a.stop();
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

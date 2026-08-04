@@ -1,0 +1,20 @@
+{
+  "gatewayUrl": "http://127.0.0.1:18791",
+  "installDir": "C:/Users/22414/dev/deepseek-device-skill",
+  "testedAt": "2026-08-04T01:33:05.619Z",
+  "results": [
+    {
+      "name": "自动拉起本地 gateway",
+      "ok": true,
+      "alreadyRunning": false,
+      "started": true,
+      "hasRouteLocal": true
+    },
+    {
+      "name": "错误路径友好提示",
+      "ok": true,
+      "error": "自动拉起本地 gateway 失败：未找到二进制：/nonexistent-w20a/target/release/deepseek-device-skill.exe。请检查设置页安装目录、确认已执行 cargo build --release。"
+    }
+  ],
+  "allOk": true
+}

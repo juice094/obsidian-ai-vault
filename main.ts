@@ -12,6 +12,7 @@ import {
 } from 'obsidian';
 import { SessionEngine } from './src/engine.js';
 import { OpenAICompatProvider } from './src/openai-compat-provider.js';
+import { GatewayManager } from './src/gateway-manager.js';
 
 const VIEW_TYPE_AI_CHAT = 'ai-vault-chat-view';
 
@@ -27,6 +28,8 @@ interface AiVaultChatSettings {
   clientId: string;
   peerAgent: 'main' | 'device';
   sessionEntry: 'note' | 'main';
+  gatewayInstallDir: string;
+  gatewayAutoStart: boolean;
 }
 
 const DEFAULT_SETTINGS: AiVaultChatSettings = {
@@ -41,6 +44,8 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   clientId: 'gateway-client',
   peerAgent: 'main',
   sessionEntry: 'note',
+  gatewayInstallDir: 'C:/Users/22414/dev/deepseek-device-skill',
+  gatewayAutoStart: true,
 };
 
 function modelToGatewayModel(model: 'default' | 'expert', route: 'local' | 'openclaw'): string {
@@ -64,6 +69,15 @@ function sessionEntryDisplay(entry: 'note' | 'main'): string {
 
 function routeToProvider(route: 'local' | 'openclaw'): 'openai-compat' | 'openclaw' {
   return route === 'openclaw' ? 'openclaw' : 'openai-compat';
+}
+
+function urlToPort(url: string, fallback: number): number {
+  try {
+    const u = new URL(url);
+    return parseInt(u.port, 10) || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // ponytail: vaultIO 直接复用 Obsidian adapter，不做额外缓存或抽象。
@@ -406,9 +420,18 @@ class AiVaultChatView extends ItemView {
     this.isStreaming = true;
     this.setInputEnabled(false);
     this.inputEl.value = '';
-    this.setStatus('思考中…');
+    this.setStatus('准备 gateway…');
 
     try {
+      if (this.currentRoute === 'local') {
+        const ready = await this.plugin.gatewayManager.ensureReady();
+        if (!ready.ok) {
+          throw new Error(ready.error || '本地 gateway 未就绪');
+        }
+        if (ready.started) {
+          this.setStatus('gateway 已自动拉起，发送中…');
+        }
+      }
       if (!this.engine) {
         this.engine = this.createEngine(null);
       }
@@ -463,8 +486,69 @@ class AiVaultChatSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.gatewayUrl)
           .onChange(async (value) => {
             this.plugin.settings.gatewayUrl = value;
+            this.plugin.gatewayManager = new GatewayManager({
+              gatewayUrl: value,
+              installDir: this.plugin.settings.gatewayInstallDir,
+              port: urlToPort(value, 18791),
+              autoStart: this.plugin.settings.gatewayAutoStart,
+            });
             await this.plugin.saveSettings();
           })
+      );
+
+    containerEl.createEl('h3', { text: '本地 gateway' });
+    containerEl.createEl('p', {
+      text: '插件在本地路由发送前自动探测并拉起 deepseek-device-skill serve；卸载插件时会自动关闭自己拉起的进程。',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(containerEl)
+      .setName('安装目录')
+      .setDesc('deepseek-device-skill 仓库根目录；需要包含 target/release/deepseek-device-skill.exe，且目录下有 dds-cred.txt。')
+      .addText((text) =>
+        text
+          .setPlaceholder('C:/Users/22414/dev/deepseek-device-skill')
+          .setValue(this.plugin.settings.gatewayInstallDir)
+          .onChange(async (value) => {
+            this.plugin.settings.gatewayInstallDir = value;
+            this.plugin.gatewayManager = new GatewayManager({
+              gatewayUrl: this.plugin.settings.gatewayUrl,
+              installDir: value,
+              port: urlToPort(this.plugin.settings.gatewayUrl, 18791),
+              autoStart: this.plugin.settings.gatewayAutoStart,
+            });
+            await this.plugin.saveSettings();
+          })
+      );
+
+    const statusSetting = new Setting(containerEl)
+      .setName('状态')
+      .setDesc('点击刷新');
+    const statusEl = statusSetting.controlEl.createEl('span', {
+      text: this.plugin.gatewayManager.statusText(),
+      cls: 'ai-vault-gateway-status',
+    });
+    statusSetting.addButton((btn) =>
+      btn.setButtonText('刷新').onClick(async () => {
+        await this.plugin.gatewayManager.probe();
+        statusEl.textContent = this.plugin.gatewayManager.statusText();
+      })
+    );
+
+    new Setting(containerEl)
+      .setName('随插件自动拉起')
+      .setDesc('关闭后，gateway 不可达时将不再自动启动，需手动运行。')
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.gatewayAutoStart).onChange(async (value) => {
+          this.plugin.settings.gatewayAutoStart = value;
+          this.plugin.gatewayManager = new GatewayManager({
+            gatewayUrl: this.plugin.settings.gatewayUrl,
+            installDir: this.plugin.settings.gatewayInstallDir,
+            port: urlToPort(this.plugin.settings.gatewayUrl, 18791),
+            autoStart: value,
+          });
+          await this.plugin.saveSettings();
+        })
       );
 
     containerEl.createEl('h3', { text: '模型路由' });
@@ -609,9 +693,17 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 
 export default class AiVaultChatPlugin extends Plugin {
   settings!: AiVaultChatSettings;
+  gatewayManager!: GatewayManager;
 
   async onload() {
     await this.loadSettings();
+
+    this.gatewayManager = new GatewayManager({
+      gatewayUrl: this.settings.gatewayUrl,
+      installDir: this.settings.gatewayInstallDir,
+      port: urlToPort(this.settings.gatewayUrl, 18791),
+      autoStart: this.settings.gatewayAutoStart,
+    });
 
     this.registerView(VIEW_TYPE_AI_CHAT, (leaf) => new AiVaultChatView(leaf, this));
 
@@ -630,6 +722,7 @@ export default class AiVaultChatPlugin extends Plugin {
 
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_CHAT);
+    this.gatewayManager?.stop();
   }
 
   async loadSettings() {

@@ -109,3 +109,9 @@
   border-radius: 4px;
   border: 1px solid var(--background-modifier-border);
 }
+
+.ai-vault-gateway-status {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-right: 8px;
+}
