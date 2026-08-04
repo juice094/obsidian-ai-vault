@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>T5a 移动端 AI×笔记输入坞 UI Mockup</title>
+    <title>T5a/W19c 移动端 AI×笔记输入坞 UI Mockup（引用(chip)改插入链接）</title>
     <style>
         :root {
             --bg: #0d0d0d;
@@ -616,8 +616,8 @@
 <body>
     <div class="top-bar">
         <div>
-            <h1>T5a 移动端 AI×笔记输入坞 UI Mockup</h1>
-            <div class="sub">会话即笔记 · 唯一新增 UI = 输入坞 · 仅在阅读视图出现</div>
+            <h1>T5a/W19c 移动端 AI×笔记输入坞 UI Mockup</h1>
+            <div class="sub">会话即笔记 · 唯一新增 UI = 输入坞 · 仅在阅读视图出现 · chip 改「插入 [[当前笔记]]」语义</div>
         </div>
         <div class="screen-tabs">
             <button class="screen-tab active" onclick="showScreen(0)">屏1</button>
@@ -704,8 +704,7 @@
                     <div class="input-dock">
                         <div class="dock-toolbar">
                             <div class="chip disabled">
-                                <span class="chip-toggle">−</span>
-                                <span>上下文：本会话</span>
+                                <span>当前为会话笔记</span>
                             </div>
                         </div>
                         <div class="dock-input-wrap">
@@ -855,8 +854,7 @@
                     <div class="input-dock">
                         <div class="dock-toolbar">
                             <div class="chip active">
-                                <span class="chip-toggle">✓</span>
-                                <span>📎《旅行预算表》</span>
+                                <span>📎 插入 [[旅行预算表]]</span>
                             </div>
                         </div>
                         <div class="dock-input-wrap">
@@ -939,7 +937,7 @@
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
-                    <p><strong>上下文 chip（B2 规则）</strong>：查看会话笔记时，chip 不出现或以禁用态显示「上下文：本会话」，避免把整个会话当作自己的上下文。此屏采用禁用态。</p>
+                    <p><strong>引用 chip（W19c 改）</strong>：查看会话笔记时，chip 以禁用态显示「当前为会话笔记」。W19 之后上下文引用统一走 <code>[[笔记名]]</code> wikilink，chip 不再携带全文；本会话无需插入自引用。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
@@ -1015,7 +1013,7 @@
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
-                    <p><strong>上下文 chip</strong>：查看普通笔记时显示「📎《旅行预算表》」，默认开启；关闭后本次发送不再携带全文。</p>
+                    <p><strong>引用 chip（W19c 改）</strong>：查看普通笔记时显示「📎 插入 [[旅行预算表]]」。点击后在输入框光标处插入 <code>[[旅行预算表]]</code>（可继续编辑、可删除），不再把笔记全文前缀进 user 消息；模型通过 W19a 引擎的 wikilink 解析独立读取文件内容。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge injected">注入</span>
@@ -1023,11 +1021,11 @@
                 </div>
                 <div class="annotation-item">
                     <span class="badge interaction">交互</span>
-                    <p><strong>发送写到哪里（B1 分支语义）</strong>：当前打开的是<strong>普通笔记</strong> → 发送不会写进当前 md，而是在 <code>AI 会话/</code> 下<strong>自动创建新会话 md</strong>，把 chip 内容作为首条 user 消息前缀，并<strong>跳转到该会话笔记</strong>继续流式生成。</p>
+                    <p><strong>发送写到哪里（B1 分支语义）</strong>：当前打开的是<strong>普通笔记</strong> → 发送不会写进当前 md，而是在 <code>AI 会话/</code> 下<strong>自动创建新会话 md</strong>。若用户已点 chip 插入 <code>[[旅行预算表]]</code>，则首条 user 消息含该链接，由引擎解析为上下文段；若未插入，则按普通问题处理。发送后<strong>跳转到该会话笔记</strong>继续流式生成。</p>
                 </div>
                 <div class="annotation-item">
                     <span class="badge interaction">交互</span>
-                    <p><strong>+ 新会话</strong>：在普通笔记上点击也走同样逻辑：创建会话 md、chip 内容作前缀、跳转。</p>
+                    <p><strong>+ 新会话</strong>：在普通笔记上点击也走同样逻辑：创建会话 md、已插入的 wikilink 保留在首条消息、跳转。</p>
                 </div>
             </div>`
         ];
