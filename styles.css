@@ -20,13 +20,6 @@
   cursor: pointer;
 }
 
-.ai-vault-chat-context-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.9em;
-}
-
 .ai-vault-chat-sessions {
   display: flex;
   flex-wrap: wrap;

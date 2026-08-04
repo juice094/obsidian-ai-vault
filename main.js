@@ -1359,9 +1359,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     toolbar.createEl("button", { text: "\u7EE7\u7EED\u5F53\u524D", cls: "ai-vault-chat-btn" }, (btn) => {
       btn.addEventListener("click", () => this.resumeCurrent());
     });
-    toolbar.createEl("label", { cls: "ai-vault-chat-context-label" }, (label) => {
-      this.contextToggleEl = label.createEl("input", { type: "checkbox" });
-      label.appendText(" \u5F53\u524D\u7B14\u8BB0\u4F5C\u4E0A\u4E0B\u6587");
+    toolbar.createEl("button", { text: "\u63D2\u5165\u5F15\u7528", cls: "ai-vault-chat-btn" }, (btn) => {
+      this.insertRefBtnEl = btn;
+      btn.addEventListener("click", () => this.insertCurrentNoteReference());
     });
     toolbar.createEl("div", { cls: "ai-vault-chat-route" }, (routeWrap) => {
       routeWrap.createEl("span", { text: "\u8DEF\u7531\uFF1A", cls: "ai-vault-chat-route-label" });
@@ -1530,6 +1530,9 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
           this.setStatus("");
           this.renderMessages();
           this.loadSessionList();
+        } else if (e.type === "reference-missing") {
+          const names = e.names || [];
+          new import_obsidian.Notice(`\u5F15\u7528\u7B14\u8BB0\u672A\u627E\u5230\uFF1A${names.join("\u3001")}\uFF0C\u5C06\u6309\u7EAF\u6587\u672C\u53D1\u9001`);
         } else if (e.type === "error") {
           this.isStreaming = false;
           this.setInputEnabled(true);
@@ -1557,13 +1560,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
     const text = this.inputEl.value.trim();
     if (!text) return;
     if (this.isStreaming) return;
-    let userText = text;
-    if (this.contextToggleEl.checked) {
-      const ctx = await this.buildContextSnippet();
-      if (ctx) userText = `${ctx}
-
-${text}`;
-    }
+    const userText = text;
     this.isStreaming = true;
     this.setInputEnabled(false);
     this.inputEl.value = "";
@@ -1589,20 +1586,30 @@ ${text}`;
       new import_obsidian.Notice(`\u53D1\u9001\u5931\u8D25\uFF1A${err.message}`);
     }
   }
-  async buildContextSnippet() {
+  insertCurrentNoteReference() {
+    var _a, _b;
     const active = this.app.workspace.getActiveFile();
-    if (!active || active.extension !== "md") return null;
-    const content = await this.app.vault.cachedRead(active);
-    const max = 4e3;
-    const body = content.length > max ? `${content.slice(0, max)}\u2026
-\uFF08\u5DF2\u622A\u65AD\uFF09` : content;
-    return `\u53C2\u8003\u7B14\u8BB0\u300A${active.basename}\u300B\uFF1A
-${body}`;
+    if (!active || active.extension !== "md") {
+      new import_obsidian.Notice("\u5F53\u524D\u6CA1\u6709\u6253\u5F00\u7684\u7B14\u8BB0\u53EF\u5F15\u7528");
+      return;
+    }
+    const link = `[[${active.basename}]]`;
+    const input = this.inputEl;
+    const start = (_a = input.selectionStart) != null ? _a : input.value.length;
+    const end = (_b = input.selectionEnd) != null ? _b : input.value.length;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const spacer = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    input.value = `${before}${spacer}${link} ${after}`;
+    const cursorPos = start + spacer.length + link.length + 1;
+    input.setSelectionRange(cursorPos, cursorPos);
+    input.focus();
   }
   setInputEnabled(enabled) {
     this.inputEl.disabled = !enabled;
     this.sendBtnEl.disabled = !enabled;
     this.sendBtnEl.textContent = enabled ? "\u53D1\u9001" : "\u751F\u6210\u4E2D\u2026";
+    if (this.insertRefBtnEl) this.insertRefBtnEl.disabled = !enabled;
   }
   setStatus(text) {
     this.statusEl.textContent = text;

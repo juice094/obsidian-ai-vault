@@ -113,7 +113,7 @@ class AiVaultChatView extends ItemView {
   private messagesEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendBtnEl!: HTMLButtonElement;
-  private contextToggleEl!: HTMLInputElement;
+  private insertRefBtnEl!: HTMLButtonElement;
   private sessionListEl!: HTMLElement;
   private statusEl!: HTMLElement;
   private routeSelectEl!: HTMLSelectElement;
@@ -177,9 +177,9 @@ class AiVaultChatView extends ItemView {
     toolbar.createEl('button', { text: '继续当前', cls: 'ai-vault-chat-btn' }, (btn) => {
       btn.addEventListener('click', () => this.resumeCurrent());
     });
-    toolbar.createEl('label', { cls: 'ai-vault-chat-context-label' }, (label) => {
-      this.contextToggleEl = label.createEl('input', { type: 'checkbox' });
-      label.appendText(' 当前笔记作上下文');
+    toolbar.createEl('button', { text: '插入引用', cls: 'ai-vault-chat-btn' }, (btn) => {
+      this.insertRefBtnEl = btn;
+      btn.addEventListener('click', () => this.insertCurrentNoteReference());
     });
 
     // 路由切换
@@ -377,6 +377,9 @@ class AiVaultChatView extends ItemView {
           this.setStatus('');
           this.renderMessages();
           this.loadSessionList();
+        } else if (e.type === 'reference-missing') {
+          const names = e.names || [];
+          new Notice(`引用笔记未找到：${names.join('、')}，将按纯文本发送`);
         } else if (e.type === 'error') {
           this.isStreaming = false;
           this.setInputEnabled(true);
@@ -411,11 +414,7 @@ class AiVaultChatView extends ItemView {
     if (!text) return;
     if (this.isStreaming) return;
 
-    let userText = text;
-    if (this.contextToggleEl.checked) {
-      const ctx = await this.buildContextSnippet();
-      if (ctx) userText = `${ctx}\n\n${text}`;
-    }
+    const userText = text;
 
     this.isStreaming = true;
     this.setInputEnabled(false);
@@ -444,19 +443,30 @@ class AiVaultChatView extends ItemView {
     }
   }
 
-  private async buildContextSnippet(): Promise<string | null> {
+  private insertCurrentNoteReference() {
     const active = this.app.workspace.getActiveFile();
-    if (!active || active.extension !== 'md') return null;
-    const content = await this.app.vault.cachedRead(active);
-    const max = 4000;
-    const body = content.length > max ? `${content.slice(0, max)}…\n（已截断）` : content;
-    return `参考笔记《${active.basename}》：\n${body}`;
+    if (!active || active.extension !== 'md') {
+      new Notice('当前没有打开的笔记可引用');
+      return;
+    }
+    const link = `[[${active.basename}]]`;
+    const input = this.inputEl;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const spacer = before.length > 0 && !before.endsWith(' ') ? ' ' : '';
+    input.value = `${before}${spacer}${link} ${after}`;
+    const cursorPos = start + spacer.length + link.length + 1;
+    input.setSelectionRange(cursorPos, cursorPos);
+    input.focus();
   }
 
   private setInputEnabled(enabled: boolean) {
     this.inputEl.disabled = !enabled;
     this.sendBtnEl.disabled = !enabled;
     this.sendBtnEl.textContent = enabled ? '发送' : '生成中…';
+    if (this.insertRefBtnEl) this.insertRefBtnEl.disabled = !enabled;
   }
 
   private setStatus(text: string) {
