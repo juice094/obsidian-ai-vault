@@ -1281,9 +1281,7 @@ function peerAgentDisplay(peerAgent, remoteLabel) {
 function sessionEntryDisplay(entry) {
   return entry === "main" ? "\u4E3B\u4F1A\u8BDD" : "\u7B14\u8BB0\u4F1A\u8BDD";
 }
-function routeToProvider(route) {
-  return route === "openclaw" ? "openclaw" : "openai-compat";
-}
+var ACTIVE_PROVIDER = "openai-compat";
 function urlToPort(url, fallback) {
   try {
     const u = new URL(url);
@@ -1511,7 +1509,7 @@ var AiVaultChatView = class extends import_obsidian.ItemView {
       search: settings.search,
       vaultIO,
       tokenBudgetChars,
-      provider: routeToProvider(route),
+      provider: ACTIVE_PROVIDER,
       route,
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,

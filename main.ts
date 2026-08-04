@@ -73,9 +73,9 @@ function sessionEntryDisplay(entry: 'note' | 'main'): string {
   return entry === 'main' ? '主会话' : '笔记会话';
 }
 
-function routeToProvider(route: 'local' | 'openclaw'): 'openai-compat' | 'openclaw' {
-  return route === 'openclaw' ? 'openclaw' : 'openai-compat';
-}
+// W17b 定案：路由 B 走 HTTP 面 OpenAI 兼容端点；引擎内部按 route === 'openclaw' 加 headers。
+// OpenClawProvider（WebSocket）已封存，不再使用。
+const ACTIVE_PROVIDER = 'openai-compat';
 
 function urlToPort(url: string, fallback: number): number {
   try {
@@ -360,7 +360,7 @@ class AiVaultChatView extends ItemView {
       search: settings.search,
       vaultIO,
       tokenBudgetChars,
-      provider: routeToProvider(route),
+      provider: ACTIVE_PROVIDER,
       route,
       openclawUrl: settings.openclawUrl,
       openclawToken: settings.openclawToken,
