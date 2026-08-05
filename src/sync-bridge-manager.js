@@ -165,7 +165,8 @@ export class SyncBridgeManager {
   }
 
   _binaryPath() {
-    const base = `${this.installDir}/target/release/obsidian-vault-crypto-adapter`;
+    // Cargo 在 Windows 上把 crate 名的连字符换成下划线生成二进制名
+    const base = `${this.installDir}/target/release/obsidian_vault_crypto_adapter`;
     return process.platform === 'win32' ? `${base}.exe` : base;
   }
 
