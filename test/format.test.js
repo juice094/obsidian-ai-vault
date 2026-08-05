@@ -260,6 +260,7 @@ describe('resolveWikilinks', () => {
     return {
       read: async (path) => entries[path] || '',
       exists: async (path) => path in entries,
+      list: async () => Object.keys(entries).filter((p) => p.endsWith('.md')),
     };
   }
 
@@ -271,8 +272,9 @@ describe('resolveWikilinks', () => {
     const result = await resolveWikilinks('[[笔记A]] [[笔记B]]', vaultIO, { budgetChars: 10000 });
     assert.equal(result.contextMessages.length, 1);
     assert.equal(result.contextMessages[0].role, 'system');
-    assert.ok(result.contextMessages[0].content.includes('参考笔记《笔记A》'));
-    assert.ok(result.contextMessages[0].content.includes('参考笔记《笔记B》'));
+    assert.ok(result.contextMessages[0].content.includes('以下来自用户 Obsidian 笔记《笔记A》（路径：笔记A.md）'));
+    assert.ok(result.contextMessages[0].content.includes('以下来自用户 Obsidian 笔记《笔记B》（路径：笔记B.md）'));
+    assert.ok(result.contextMessages[0].content.includes('由插件自动注入，非用户粘贴'));
     assert.deepEqual(result.missing, []);
   });
 
@@ -290,9 +292,9 @@ describe('resolveWikilinks', () => {
 
   it('truncates long notes within budget', async () => {
     const vaultIO = makeVaultIO({ '长笔记.md': 'x'.repeat(200) });
-    const result = await resolveWikilinks('[[长笔记]]', vaultIO, { budgetChars: 50 });
+    const result = await resolveWikilinks('[[长笔记]]', vaultIO, { budgetChars: 60 });
     assert.equal(result.contextMessages.length, 1);
-    assert.ok(result.contextMessages[0].content.includes('x'.repeat(40)));
+    assert.ok(result.contextMessages[0].content.includes('x'.repeat(10)));
     assert.ok(result.contextMessages[0].content.includes('已截断'));
   });
 
@@ -300,6 +302,79 @@ describe('resolveWikilinks', () => {
     const vaultIO = makeVaultIO({});
     const result = await resolveWikilinks('[[不存在]]', vaultIO, { budgetChars: 10000 });
     assert.equal(result.contextMessages.length, 0);
+    assert.deepEqual(result.missing, ['不存在']);
+  });
+
+  it('resolves notes in subdirectories by basename', async () => {
+    const vaultIO = makeVaultIO({
+      'notes/笔记A.md': '子目录内容A',
+      '笔记B.md': '根目录内容B',
+    });
+    const result = await resolveWikilinks('[[笔记A]] [[笔记B]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('（路径：notes/笔记A.md）'));
+    assert.ok(result.contextMessages[0].content.includes('子目录内容A'));
+    assert.ok(result.contextMessages[0].content.includes('（路径：笔记B.md）'));
+    assert.deepEqual(result.missing, []);
+  });
+
+  it('resolves notes in nested subdirectories', async () => {
+    const vaultIO = makeVaultIO({
+      'notes/Notes/X.md': '嵌套内容',
+    });
+    const result = await resolveWikilinks('[[X]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('（路径：notes/Notes/X.md）'));
+    assert.ok(result.contextMessages[0].content.includes('嵌套内容'));
+    assert.deepEqual(result.missing, []);
+  });
+
+  it('resolves ambiguous basenames to the shortest path and labels it', async () => {
+    const vaultIO = makeVaultIO({
+      'X.md': '根目录X',
+      'notes/X.md': '子目录X',
+      'notes/Notes/X.md': '嵌套X',
+    });
+    const result = await resolveWikilinks('[[X]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('（路径：X.md）'));
+    assert.ok(result.contextMessages[0].content.includes('根目录X'));
+    assert.ok(!result.contextMessages[0].content.includes('子目录X'));
+    assert.deepEqual(result.missing, []);
+  });
+
+  it('still resolves root-level notes', async () => {
+    const vaultIO = makeVaultIO({
+      'Daily.md': '日记内容',
+    });
+    const result = await resolveWikilinks('[[Daily]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('（路径：Daily.md）'));
+    assert.ok(result.contextMessages[0].content.includes('日记内容'));
+    assert.deepEqual(result.missing, []);
+  });
+
+  it('includes source label in injected context', async () => {
+    const vaultIO = makeVaultIO({
+      '笔记A.md': '内容A',
+    });
+    const result = await resolveWikilinks('[[笔记A]]', vaultIO, { budgetChars: 10000 });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('以下来自用户 Obsidian 笔记《笔记A》（路径：笔记A.md），由插件自动注入，非用户粘贴：'));
+  });
+
+  it('reports missing while still injecting resolved links', async () => {
+    const missing = [];
+    const vaultIO = makeVaultIO({
+      'notes/笔记A.md': '子目录内容A',
+    });
+    const result = await resolveWikilinks('[[笔记A]] [[不存在]]', vaultIO, {
+      budgetChars: 10000,
+      onMissing: (names) => missing.push(...names),
+    });
+    assert.equal(result.contextMessages.length, 1);
+    assert.ok(result.contextMessages[0].content.includes('子目录内容A'));
+    assert.deepEqual(missing, ['不存在']);
     assert.deepEqual(result.missing, ['不存在']);
   });
 });

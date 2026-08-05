@@ -5,6 +5,8 @@ export interface VaultIO {
   exists(path: string): Promise<boolean>;
   rename(oldPath: string, newPath: string): Promise<void>;
   mkdir(path: string): Promise<void>;
+  /** 返回库内所有 .md 文件的相对路径。 */
+  list(): Promise<string[]>;
 }
 
 export interface EngineEvent {

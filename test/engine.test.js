@@ -17,6 +17,7 @@ function makeVaultIO() {
       files.set(newPath, text);
     },
     mkdir: async (path) => { dirs.add(path); },
+    list: async () => [...files.keys()].filter((p) => p.endsWith('.md')),
     _files: files,
     _dirs: dirs,
   };
@@ -367,6 +368,7 @@ writing...
         files.set(newPath, text);
       },
       mkdir: async (path) => { dirs.add(path); },
+      list: async () => [...files.keys()].filter((p) => p.endsWith('.md')),
     };
 
     const { server, url } = await startMockServer((req, res) => {
@@ -411,6 +413,7 @@ writing...
         files.set(newPath, text);
       },
       mkdir: async (path) => { dirs.add(path); },
+      list: async () => [...files.keys()].filter((p) => p.endsWith('.md')),
       _files: files,
       _dirs: dirs,
     };

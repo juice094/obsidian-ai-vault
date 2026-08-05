@@ -87,7 +87,8 @@ function urlToPort(url: string, fallback: number): number {
 }
 
 // ponytail: vaultIO 直接复用 Obsidian adapter，不做额外缓存或抽象。
-function makeVaultIO(adapter: any) {
+function makeVaultIO(vault: any) {
+  const adapter = vault.adapter;
   return {
     read: async (path: string) => {
       const exists = await adapter.exists(path);
@@ -110,6 +111,9 @@ function makeVaultIO(adapter: any) {
         await adapter.mkdir(path);
       }
     },
+    list: async () => vault.getFiles()
+      .filter((f: any) => f.extension === 'md')
+      .map((f: any) => f.path),
   };
 }
 
@@ -340,7 +344,7 @@ class AiVaultChatView extends ItemView {
   }
 
   private createEngine(sessionPath: string | null): SessionEngine {
-    const vaultIO = makeVaultIO(this.app.vault.adapter);
+    const vaultIO = makeVaultIO(this.app.vault);
     const route = this.currentRoute;
     if (route === 'openclaw') {
       if (!this.plugin.settings.openclawUrl || !this.plugin.settings.openclawToken) {

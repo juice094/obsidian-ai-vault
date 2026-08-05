@@ -273,37 +273,42 @@ ${lines.join("\n")}
   async function resolveWikilinks(userText, vaultIO, { budgetChars = 6e3, onMissing }) {
     const links = extractWikilinks(userText);
     if (links.length === 0) return { contextMessages: [], missing: [] };
+    const allPaths = await vaultIO.list();
+    const mdPaths = allPaths.filter((p) => p.toLowerCase().endsWith(".md"));
     const contextParts = [];
     const missing = [];
     let usedChars = 0;
     for (const link of links) {
       if (usedChars >= budgetChars) break;
-      const path = `${link}.md`;
-      const exists = await vaultIO.exists(path);
-      if (!exists) {
+      const matches = mdPaths.map((path2) => ({ path: path2, basename: path2.slice(path2.lastIndexOf("/") + 1, -3) })).filter(({ basename }) => basename === link).sort((a, b) => a.path.length - b.path.length);
+      if (matches.length === 0) {
         missing.push(link);
         continue;
       }
+      const { path } = matches[0];
       const content = await vaultIO.read(path);
       if (!content) {
         missing.push(link);
         continue;
       }
       const remaining = budgetChars - usedChars;
+      const header = `\u4EE5\u4E0B\u6765\u81EA\u7528\u6237 Obsidian \u7B14\u8BB0\u300A${link}\u300B\uFF08\u8DEF\u5F84\uFF1A${path}\uFF09\uFF0C\u7531\u63D2\u4EF6\u81EA\u52A8\u6CE8\u5165\uFF0C\u975E\u7528\u6237\u7C98\u8D34\uFF1A
+`;
+      const maxBody = Math.max(0, remaining - header.length);
       let body = content;
       let truncated = false;
-      if (body.length > remaining) {
-        body = body.slice(0, remaining) + "\n\uFF08\u5DF2\u622A\u65AD\uFF09";
+      if (body.length > maxBody) {
+        body = body.slice(0, maxBody) + "\n\uFF08\u5DF2\u622A\u65AD\uFF09";
         truncated = true;
       }
-      usedChars += body.length;
-      contextParts.push({ link, content: body, truncated });
+      usedChars += header.length + body.length;
+      contextParts.push({ link, path, content: body, truncated });
     }
     if (missing.length > 0 && onMissing) {
       onMissing(missing);
     }
     if (contextParts.length === 0) return { contextMessages: [], missing };
-    const systemContent = contextParts.map((p) => `\u53C2\u8003\u7B14\u8BB0\u300A${p.link}\u300B\uFF1A
+    const systemContent = contextParts.map((p) => `\u4EE5\u4E0B\u6765\u81EA\u7528\u6237 Obsidian \u7B14\u8BB0\u300A${p.link}\u300B\uFF08\u8DEF\u5F84\uFF1A${p.path}\uFF09\uFF0C\u7531\u63D2\u4EF6\u81EA\u52A8\u6CE8\u5165\uFF0C\u975E\u7528\u6237\u7C98\u8D34\uFF1A
 ${p.content}`).join("\n\n---\n\n");
     return {
       contextMessages: [{ role: "system", content: systemContent }],

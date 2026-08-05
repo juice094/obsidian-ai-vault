@@ -20,6 +20,7 @@ function makeVaultIO() {
       files.set(newPath, text);
     },
     mkdir: async (path) => { dirs.add(path); },
+    list: async () => [...files.keys()].filter((p) => p.endsWith('.md')),
     _files: files,
     _dirs: dirs,
   };

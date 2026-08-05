@@ -295,32 +295,44 @@ export async function resolveWikilinks(userText, vaultIO, { budgetChars = 6000, 
   const links = extractWikilinks(userText);
   if (links.length === 0) return { contextMessages: [], missing: [] };
 
+  const allPaths = await vaultIO.list();
+  const mdPaths = allPaths.filter((p) => p.toLowerCase().endsWith('.md'));
+
   const contextParts = [];
   const missing = [];
   let usedChars = 0;
 
   for (const link of links) {
     if (usedChars >= budgetChars) break;
-    const path = `${link}.md`;
-    const exists = await vaultIO.exists(path);
-    if (!exists) {
+
+    const matches = mdPaths
+      .map((path) => ({ path, basename: path.slice(path.lastIndexOf('/') + 1, -3) }))
+      .filter(({ basename }) => basename === link)
+      .sort((a, b) => a.path.length - b.path.length);
+
+    if (matches.length === 0) {
       missing.push(link);
       continue;
     }
+
+    const { path } = matches[0];
     const content = await vaultIO.read(path);
     if (!content) {
       missing.push(link);
       continue;
     }
+
     const remaining = budgetChars - usedChars;
+    const header = `以下来自用户 Obsidian 笔记《${link}》（路径：${path}），由插件自动注入，非用户粘贴：\n`;
+    const maxBody = Math.max(0, remaining - header.length);
     let body = content;
     let truncated = false;
-    if (body.length > remaining) {
-      body = body.slice(0, remaining) + '\n（已截断）';
+    if (body.length > maxBody) {
+      body = body.slice(0, maxBody) + '\n（已截断）';
       truncated = true;
     }
-    usedChars += body.length;
-    contextParts.push({ link, content: body, truncated });
+    usedChars += header.length + body.length;
+    contextParts.push({ link, path, content: body, truncated });
   }
 
   if (missing.length > 0 && onMissing) {
@@ -330,7 +342,7 @@ export async function resolveWikilinks(userText, vaultIO, { budgetChars = 6000, 
   if (contextParts.length === 0) return { contextMessages: [], missing };
 
   const systemContent = contextParts
-    .map((p) => `参考笔记《${p.link}》：\n${p.content}`)
+    .map((p) => `以下来自用户 Obsidian 笔记《${p.link}》（路径：${p.path}），由插件自动注入，非用户粘贴：\n${p.content}`)
     .join('\n\n---\n\n');
   return {
     contextMessages: [{ role: 'system', content: systemContent }],
