@@ -1250,6 +1250,219 @@ var GatewayManager = class {
   }
 };
 
+// src/sync-bridge-manager.js
+var import_node_child_process2 = require("node:child_process");
+var import_node_fs2 = require("node:fs");
+var SyncBridgeManager = class {
+  constructor({
+    vaultPath,
+    syncDirPath,
+    password,
+    saltFile,
+    stateFile,
+    trashPath,
+    installDir,
+    autoStart = true,
+    spawnFn = import_node_child_process2.spawn
+  }) {
+    this.vaultPath = vaultPath || "";
+    this.syncDirPath = syncDirPath || "";
+    this.password = password || "";
+    this.saltFile = saltFile || "";
+    this.stateFile = stateFile || "";
+    this.trashPath = trashPath || "";
+    this.installDir = installDir || "";
+    this.autoStart = autoStart;
+    this.spawnFn = spawnFn;
+    this.process = null;
+    this.status = "unknown";
+    this.statusMessage = "";
+    this.logTail = "";
+    this.lockFile = this.stateFile ? `${this.stateFile}.lock` : "";
+  }
+  /** 探测 watch 进程是否存活（锁文件新鲜且 PID 存在） */
+  async probe() {
+    if (!this.lockFile || !(0, import_node_fs2.existsSync)(this.lockFile)) {
+      return false;
+    }
+    try {
+      const raw = (0, import_node_fs2.readFileSync)(this.lockFile, "utf8");
+      const lock = JSON.parse(raw);
+      const ageMs = Date.now() - (lock.ts || 0);
+      if (ageMs > 1e4) {
+        return false;
+      }
+      if (lock.pid && !this._pidExists(lock.pid)) {
+        return false;
+      }
+      this.status = "ready";
+      this.statusMessage = "watch \u8FDB\u7A0B\u5C31\u7EEA";
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  /** 确保 watch 就绪；必要时自动拉起 */
+  async ensureReady() {
+    if (await this.probe()) {
+      return { ok: true, started: false };
+    }
+    if (!this.autoStart) {
+      this.status = "unreachable";
+      return {
+        ok: false,
+        error: "\u540C\u6B65\u6865 watch \u672A\u8FD0\u884C\uFF0C\u4E14\u81EA\u52A8\u62C9\u8D77\u5DF2\u5173\u95ED\u3002"
+      };
+    }
+    return this._startAndWait();
+  }
+  async _startAndWait() {
+    this.status = "starting";
+    const spawned = await this._spawnWatch();
+    if (!spawned) {
+      this.status = "error";
+      return {
+        ok: false,
+        error: `\u81EA\u52A8\u62C9\u8D77\u540C\u6B65\u6865\u5931\u8D25\uFF1A${this.statusMessage}\u3002\u8BF7\u68C0\u67E5 crypto-adapter \u5B89\u88C5\u76EE\u5F55\u3001\u786E\u8BA4\u5DF2\u6267\u884C cargo build --release\u3002`
+      };
+    }
+    const ready = await this._pollReady(8e3, 300);
+    if (!ready) {
+      this._kill();
+      this.status = "error";
+      return {
+        ok: false,
+        error: "\u540C\u6B65\u6865 watch \u542F\u52A8\u8D85\u65F6\uFF088s\uFF09\u3002\u8BF7\u68C0\u67E5 vault/sync \u8DEF\u5F84\u3001state \u4E0E trash \u662F\u5426\u53EF\u5199\u3002"
+      };
+    }
+    this.status = "ready";
+    return { ok: true, started: true };
+  }
+  _spawnWatch() {
+    return new Promise((resolve) => {
+      var _a;
+      const binary = this._binaryPath();
+      if (!(0, import_node_fs2.existsSync)(binary)) {
+        this.statusMessage = `\u672A\u627E\u5230\u4E8C\u8FDB\u5236\uFF1A${binary}`;
+        resolve(false);
+        return;
+      }
+      if (!this.vaultPath || !this.syncDirPath || !this.saltFile || !this.stateFile || !this.trashPath) {
+        this.statusMessage = "\u7F3A\u5C11 vault/sync/salt/state/trash \u8DEF\u5F84\u4E4B\u4E00";
+        resolve(false);
+        return;
+      }
+      const args = [
+        "watch",
+        "--vault",
+        resolve(this.vaultPath),
+        "--sync",
+        resolve(this.syncDirPath),
+        "--password",
+        this.password,
+        "--salt-file",
+        resolve(this.saltFile),
+        "--state",
+        resolve(this.stateFile),
+        "--sync-trash",
+        resolve(this.trashPath)
+      ];
+      let settled = false;
+      try {
+        this.process = this.spawnFn(binary, args, {
+          cwd: this.installDir,
+          stdio: ["ignore", "ignore", "pipe"],
+          detached: false
+        });
+      } catch (err) {
+        this.statusMessage = err.message;
+        resolve(false);
+        return;
+      }
+      (_a = this.process.stderr) == null ? void 0 : _a.on("data", (chunk) => {
+        const line = chunk.toString().trim();
+        if (line) this.logTail = line;
+      });
+      this.process.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          this.statusMessage = err.message;
+          resolve(false);
+        }
+      });
+      this.process.on("spawn", () => {
+        if (!settled) {
+          settled = true;
+          resolve(true);
+        }
+      });
+      this.process.on("exit", (code) => {
+        if (!settled) {
+          settled = true;
+          this.statusMessage = `\u8FDB\u7A0B\u9000\u51FA\uFF0C\u7801 ${code != null ? code : "unknown"}`;
+          resolve(false);
+        } else if (this.status === "starting" || this.status === "ready") {
+          this.status = "error";
+          this.statusMessage = `watch \u5F02\u5E38\u9000\u51FA\uFF0C\u7801 ${code != null ? code : "unknown"}`;
+        }
+      });
+    });
+  }
+  _binaryPath() {
+    const base = `${this.installDir}/target/release/obsidian-vault-crypto-adapter`;
+    return process.platform === "win32" ? `${base}.exe` : base;
+  }
+  async _pollReady(totalMs, intervalMs) {
+    const start = Date.now();
+    while (Date.now() - start < totalMs) {
+      if (await this.probe(intervalMs)) return true;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return false;
+  }
+  /** 停止本管理器拉起的 watch 进程 */
+  stop() {
+    this._kill();
+    this._clearLock();
+  }
+  _kill() {
+    if (this.process) {
+      try {
+        this.process.kill();
+      } catch (e) {
+      }
+      this.process = null;
+    }
+  }
+  _clearLock() {
+    if (this.lockFile && (0, import_node_fs2.existsSync)(this.lockFile)) {
+      try {
+        (0, import_node_fs2.unlinkSync)(this.lockFile);
+      } catch (e) {
+      }
+    }
+  }
+  _pidExists(pid) {
+    try {
+      process.kill(Number(pid), 0);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  /** 人类可读的状态文本 */
+  statusText() {
+    const map = {
+      ready: "\u7EFF\uFF1A\u540C\u6B65\u6865\u8FD0\u884C\u4E2D",
+      starting: "\u9EC4\uFF1A\u6B63\u5728\u62C9\u8D77\u540C\u6B65\u6865",
+      unreachable: "\u7EA2\uFF1A\u540C\u6B65\u6865\u672A\u8FD0\u884C",
+      error: `\u7EA2\uFF1A${this.statusMessage || "\u540C\u6B65\u6865\u5F02\u5E38"}`,
+      unknown: "\u7070\uFF1A\u672A\u63A2\u6D4B"
+    };
+    return map[this.status] || `\u7070\uFF1A${this.status}`;
+  }
+};
+
 // main.ts
 var VIEW_TYPE_AI_CHAT = "ai-vault-chat-view";
 var DEFAULT_SETTINGS = {
@@ -1267,7 +1480,14 @@ var DEFAULT_SETTINGS = {
   remoteLabel: "",
   credentialNote: "",
   gatewayInstallDir: "C:/Users/22414/dev/deepseek-device-skill",
-  gatewayAutoStart: true
+  gatewayAutoStart: true,
+  syncBridgeEnabled: false,
+  syncBridgeInstallDir: "C:/Users/22414/dev/obsidian-vault-crypto-adapter",
+  syncDirPath: "",
+  syncBridgePassword: "",
+  syncBridgeSaltFile: "",
+  syncBridgeStateFile: "",
+  syncBridgeTrashPath: ""
 };
 function modelToGatewayModel(model, route) {
   if (route === "openclaw") {
@@ -1685,6 +1905,98 @@ var AiVaultChatSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    containerEl.createEl("h3", { text: "\u540C\u6B65\u6865" });
+    containerEl.createEl("p", {
+      text: "\u901A\u8FC7 obsidian-vault-crypto-adapter watch \u53CC\u5411\u540C\u6B65 vault \u4E0E Syncthing sync dir\u3002\u542F\u7528\u540E\u63D2\u4EF6\u4F1A\u81EA\u52A8\u62C9\u8D77 watch \u8FDB\u7A0B\uFF1B\u5378\u8F7D\u65F6\u81EA\u52A8\u7ED3\u675F\u3002",
+      cls: "setting-item-description"
+    });
+    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u540C\u6B65\u6865").setDesc("\u5F00\u542F\u540E\u968F\u63D2\u4EF6\u81EA\u52A8\u542F\u52A8 watch \u8FDB\u7A0B\u3002").addToggle(
+      (t) => t.setValue(this.plugin.settings.syncBridgeEnabled).onChange(async (value) => {
+        this.plugin.settings.syncBridgeEnabled = value;
+        this.plugin.syncBridgeManager = new SyncBridgeManager({
+          vaultPath: this.plugin._vaultBasePath(),
+          syncDirPath: this.plugin.settings.syncDirPath,
+          password: this.plugin.settings.syncBridgePassword,
+          saltFile: this.plugin.settings.syncBridgeSaltFile,
+          stateFile: this.plugin.settings.syncBridgeStateFile || this.plugin._defaultStateFile(),
+          trashPath: this.plugin.settings.syncBridgeTrashPath,
+          installDir: this.plugin.settings.syncBridgeInstallDir,
+          autoStart: value
+        });
+        await this.plugin.saveSettings();
+        if (value) {
+          const result = await this.plugin.syncBridgeManager.ensureReady();
+          if (!result.ok) {
+            new import_obsidian.Notice(`\u540C\u6B65\u6865\u542F\u52A8\u5931\u8D25\uFF1A${result.error}`);
+          }
+        } else {
+          this.plugin.syncBridgeManager.stop();
+        }
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("crypto-adapter \u5B89\u88C5\u76EE\u5F55").setDesc("obsidian-vault-crypto-adapter \u4ED3\u5E93\u6839\u76EE\u5F55\uFF1B\u9700\u8981\u5305\u542B target/release/obsidian-vault-crypto-adapter.exe\u3002").addText(
+      (text) => text.setPlaceholder("C:/Users/22414/dev/obsidian-vault-crypto-adapter").setValue(this.plugin.settings.syncBridgeInstallDir).onChange(async (value) => {
+        this.plugin.settings.syncBridgeInstallDir = value;
+        this.plugin.syncBridgeManager = new SyncBridgeManager({
+          vaultPath: this.plugin._vaultBasePath(),
+          syncDirPath: this.plugin.settings.syncDirPath,
+          password: this.plugin.settings.syncBridgePassword,
+          saltFile: this.plugin.settings.syncBridgeSaltFile,
+          stateFile: this.plugin.settings.syncBridgeStateFile || this.plugin._defaultStateFile(),
+          trashPath: this.plugin.settings.syncBridgeTrashPath,
+          installDir: value,
+          autoStart: this.plugin.settings.syncBridgeEnabled
+        });
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Sync dir \u8DEF\u5F84").setDesc("Syncthing \u540C\u6B65\u76EE\u5F55\u7EDD\u5BF9\u8DEF\u5F84\uFF08\u52A0\u5BC6\u4FA7\uFF09\u3002").addText(
+      (text) => text.setPlaceholder("C:/Users/22414/Sync/MyVault").setValue(this.plugin.settings.syncDirPath).onChange(async (value) => {
+        this.plugin.settings.syncDirPath = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Salt \u6587\u4EF6\u8DEF\u5F84").setDesc("vault \u52A0\u5BC6\u76D0\u6587\u4EF6\u7EDD\u5BF9\u8DEF\u5F84\u3002").addText(
+      (text) => text.setPlaceholder("C:/Users/22414/Sync/MyVault.salt").setValue(this.plugin.settings.syncBridgeSaltFile).onChange(async (value) => {
+        this.plugin.settings.syncBridgeSaltFile = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84").setDesc("\u540C\u6B65\u72B6\u6001\u6587\u4EF6\uFF0C\u5FC5\u987B\u4F4D\u4E8E sync dir \u4E4B\u5916\uFF1B\u7559\u7A7A\u5219\u4F7F\u7528\u63D2\u4EF6\u76EE\u5F55\u3002").addText(
+      (text) => text.setPlaceholder("").setValue(this.plugin.settings.syncBridgeStateFile).onChange(async (value) => {
+        this.plugin.settings.syncBridgeStateFile = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Trash \u8DEF\u5F84").setDesc("\u88AB\u5220\u9664\u6587\u4EF6\u5F52\u6863\u76EE\u5F55\uFF0C\u5FC5\u987B\u4F4D\u4E8E sync dir \u4E4B\u5916\uFF1B\u7559\u7A7A\u5219\u4F7F\u7528\u9ED8\u8BA4\u503C\u3002").addText(
+      (text) => text.setPlaceholder("").setValue(this.plugin.settings.syncBridgeTrashPath).onChange(async (value) => {
+        this.plugin.settings.syncBridgeTrashPath = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Vault \u5BC6\u7801").setDesc("\u7528\u4E8E\u52A0\u5BC6/\u89E3\u5BC6 vault \u7684\u5BC6\u7801\u3002").addText((text) => {
+      text.inputEl.type = "password";
+      text.setPlaceholder("").setValue(this.plugin.settings.syncBridgePassword).onChange(async (value) => {
+        this.plugin.settings.syncBridgePassword = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    const bridgeStatusSetting = new import_obsidian.Setting(containerEl).setName("\u72B6\u6001").setDesc("\u70B9\u51FB\u5237\u65B0");
+    const bridgeStatusEl = bridgeStatusSetting.controlEl.createEl("span", {
+      text: this.plugin.syncBridgeManager.statusText(),
+      cls: "ai-vault-syncbridge-status"
+    });
+    const bridgeLogEl = containerEl.createEl("div", {
+      text: this.plugin.syncBridgeManager.logTail || "\u65E0\u65E5\u5FD7",
+      cls: "setting-item-description ai-vault-syncbridge-log"
+    });
+    bridgeStatusSetting.addButton(
+      (btn) => btn.setButtonText("\u5237\u65B0").onClick(async () => {
+        await this.plugin.syncBridgeManager.probe();
+        bridgeStatusEl.textContent = this.plugin.syncBridgeManager.statusText();
+        bridgeLogEl.textContent = this.plugin.syncBridgeManager.logTail || "\u65E0\u65E5\u5FD7";
+      })
+    );
     containerEl.createEl("h3", { text: "\u6A21\u578B\u8DEF\u7531" });
     containerEl.createEl("p", {
       text: "\u9009\u62E9\u672C\u4F1A\u8BDD\u7684\u6A21\u578B\u63D0\u4F9B\u5546\u3002\u672C\u5730 = \u5185\u5D4C/\u672C\u673A DeepSeek gateway\uFF1B\u8FDC\u7A0B = OpenClaw HTTP \u7AEF\u70B9\uFF08shared-secret token\uFF0C\u65E0\u9700\u914D\u5BF9\uFF09\u3002",
@@ -1777,6 +2089,23 @@ var AiVaultChatPlugin = class extends import_obsidian.Plugin {
       port: urlToPort(this.settings.gatewayUrl, 18791),
       autoStart: this.settings.gatewayAutoStart
     });
+    this.syncBridgeManager = new SyncBridgeManager({
+      vaultPath: this._vaultBasePath(),
+      syncDirPath: this.settings.syncDirPath,
+      password: this.settings.syncBridgePassword,
+      saltFile: this.settings.syncBridgeSaltFile,
+      stateFile: this.settings.syncBridgeStateFile || this._defaultStateFile(),
+      trashPath: this.settings.syncBridgeTrashPath,
+      installDir: this.settings.syncBridgeInstallDir,
+      autoStart: this.settings.syncBridgeEnabled
+    });
+    if (this.settings.syncBridgeEnabled) {
+      this.syncBridgeManager.ensureReady().then((result) => {
+        if (!result.ok) {
+          console.error("SyncBridge \u81EA\u52A8\u62C9\u8D77\u5931\u8D25\uFF1A", result.error);
+        }
+      });
+    }
     this.registerView(VIEW_TYPE_AI_CHAT, (leaf) => new AiVaultChatView(leaf, this));
     this.addRibbonIcon("message-square", "AI Vault Chat", () => {
       this.activateView();
@@ -1789,9 +2118,20 @@ var AiVaultChatPlugin = class extends import_obsidian.Plugin {
     this.addSettingTab(new AiVaultChatSettingTab(this.app, this));
   }
   onunload() {
-    var _a;
+    var _a, _b;
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_CHAT);
     (_a = this.gatewayManager) == null ? void 0 : _a.stop();
+    (_b = this.syncBridgeManager) == null ? void 0 : _b.stop();
+  }
+  _vaultBasePath() {
+    var _a;
+    const adapter = this.app.vault.adapter;
+    return (adapter == null ? void 0 : adapter.basePath) || ((_a = adapter == null ? void 0 : adapter.getBasePath) == null ? void 0 : _a.call(adapter)) || "";
+  }
+  _defaultStateFile() {
+    const base = this._vaultBasePath();
+    if (!base) return "";
+    return `${base}/.obsidian/plugins/ai-vault-chat/sync-bridge-state.json`;
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

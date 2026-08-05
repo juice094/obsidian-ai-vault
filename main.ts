@@ -13,6 +13,7 @@ import {
 import { SessionEngine } from './src/engine.js';
 import { OpenAICompatProvider } from './src/openai-compat-provider.js';
 import { GatewayManager } from './src/gateway-manager.js';
+import { SyncBridgeManager } from './src/sync-bridge-manager.js';
 
 const VIEW_TYPE_AI_CHAT = 'ai-vault-chat-view';
 
@@ -32,6 +33,13 @@ interface AiVaultChatSettings {
   credentialNote: string;
   gatewayInstallDir: string;
   gatewayAutoStart: boolean;
+  syncBridgeEnabled: boolean;
+  syncBridgeInstallDir: string;
+  syncDirPath: string;
+  syncBridgePassword: string;
+  syncBridgeSaltFile: string;
+  syncBridgeStateFile: string;
+  syncBridgeTrashPath: string;
 }
 
 const DEFAULT_SETTINGS: AiVaultChatSettings = {
@@ -50,6 +58,13 @@ const DEFAULT_SETTINGS: AiVaultChatSettings = {
   credentialNote: '',
   gatewayInstallDir: 'C:/Users/22414/dev/deepseek-device-skill',
   gatewayAutoStart: true,
+  syncBridgeEnabled: false,
+  syncBridgeInstallDir: 'C:/Users/22414/dev/obsidian-vault-crypto-adapter',
+  syncDirPath: '',
+  syncBridgePassword: '',
+  syncBridgeSaltFile: '',
+  syncBridgeStateFile: '',
+  syncBridgeTrashPath: '',
 };
 
 function modelToGatewayModel(model: 'default' | 'expert', route: 'local' | 'openclaw'): string {
@@ -571,6 +586,148 @@ class AiVaultChatSettingTab extends PluginSettingTab {
         })
       );
 
+    containerEl.createEl('h3', { text: '同步桥' });
+    containerEl.createEl('p', {
+      text: '通过 obsidian-vault-crypto-adapter watch 双向同步 vault 与 Syncthing sync dir。启用后插件会自动拉起 watch 进程；卸载时自动结束。',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(containerEl)
+      .setName('启用同步桥')
+      .setDesc('开启后随插件自动启动 watch 进程。')
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.syncBridgeEnabled).onChange(async (value) => {
+          this.plugin.settings.syncBridgeEnabled = value;
+          this.plugin.syncBridgeManager = new SyncBridgeManager({
+            vaultPath: this.plugin._vaultBasePath(),
+            syncDirPath: this.plugin.settings.syncDirPath,
+            password: this.plugin.settings.syncBridgePassword,
+            saltFile: this.plugin.settings.syncBridgeSaltFile,
+            stateFile: this.plugin.settings.syncBridgeStateFile || this.plugin._defaultStateFile(),
+            trashPath: this.plugin.settings.syncBridgeTrashPath,
+            installDir: this.plugin.settings.syncBridgeInstallDir,
+            autoStart: value,
+          });
+          await this.plugin.saveSettings();
+          if (value) {
+            const result = await this.plugin.syncBridgeManager.ensureReady();
+            if (!result.ok) {
+              new Notice(`同步桥启动失败：${result.error}`);
+            }
+          } else {
+            this.plugin.syncBridgeManager.stop();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('crypto-adapter 安装目录')
+      .setDesc('obsidian-vault-crypto-adapter 仓库根目录；需要包含 target/release/obsidian-vault-crypto-adapter.exe。')
+      .addText((text) =>
+        text
+          .setPlaceholder('C:/Users/22414/dev/obsidian-vault-crypto-adapter')
+          .setValue(this.plugin.settings.syncBridgeInstallDir)
+          .onChange(async (value) => {
+            this.plugin.settings.syncBridgeInstallDir = value;
+            this.plugin.syncBridgeManager = new SyncBridgeManager({
+              vaultPath: this.plugin._vaultBasePath(),
+              syncDirPath: this.plugin.settings.syncDirPath,
+              password: this.plugin.settings.syncBridgePassword,
+              saltFile: this.plugin.settings.syncBridgeSaltFile,
+              stateFile: this.plugin.settings.syncBridgeStateFile || this.plugin._defaultStateFile(),
+              trashPath: this.plugin.settings.syncBridgeTrashPath,
+              installDir: value,
+              autoStart: this.plugin.settings.syncBridgeEnabled,
+            });
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Sync dir 路径')
+      .setDesc('Syncthing 同步目录绝对路径（加密侧）。')
+      .addText((text) =>
+        text
+          .setPlaceholder('C:/Users/22414/Sync/MyVault')
+          .setValue(this.plugin.settings.syncDirPath)
+          .onChange(async (value) => {
+            this.plugin.settings.syncDirPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Salt 文件路径')
+      .setDesc('vault 加密盐文件绝对路径。')
+      .addText((text) =>
+        text
+          .setPlaceholder('C:/Users/22414/Sync/MyVault.salt')
+          .setValue(this.plugin.settings.syncBridgeSaltFile)
+          .onChange(async (value) => {
+            this.plugin.settings.syncBridgeSaltFile = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('状态文件路径')
+      .setDesc('同步状态文件，必须位于 sync dir 之外；留空则使用插件目录。')
+      .addText((text) =>
+        text
+          .setPlaceholder('')
+          .setValue(this.plugin.settings.syncBridgeStateFile)
+          .onChange(async (value) => {
+            this.plugin.settings.syncBridgeStateFile = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Trash 路径')
+      .setDesc('被删除文件归档目录，必须位于 sync dir 之外；留空则使用默认值。')
+      .addText((text) =>
+        text
+          .setPlaceholder('')
+          .setValue(this.plugin.settings.syncBridgeTrashPath)
+          .onChange(async (value) => {
+            this.plugin.settings.syncBridgeTrashPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Vault 密码')
+      .setDesc('用于加密/解密 vault 的密码。')
+      .addText((text) => {
+        text.inputEl.type = 'password';
+        text
+          .setPlaceholder('')
+          .setValue(this.plugin.settings.syncBridgePassword)
+          .onChange(async (value) => {
+            this.plugin.settings.syncBridgePassword = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    const bridgeStatusSetting = new Setting(containerEl)
+      .setName('状态')
+      .setDesc('点击刷新');
+    const bridgeStatusEl = bridgeStatusSetting.controlEl.createEl('span', {
+      text: this.plugin.syncBridgeManager.statusText(),
+      cls: 'ai-vault-syncbridge-status',
+    });
+    const bridgeLogEl = containerEl.createEl('div', {
+      text: this.plugin.syncBridgeManager.logTail || '无日志',
+      cls: 'setting-item-description ai-vault-syncbridge-log',
+    });
+    bridgeStatusSetting.addButton((btn) =>
+      btn.setButtonText('刷新').onClick(async () => {
+        await this.plugin.syncBridgeManager.probe();
+        bridgeStatusEl.textContent = this.plugin.syncBridgeManager.statusText();
+        bridgeLogEl.textContent = this.plugin.syncBridgeManager.logTail || '无日志';
+      })
+    );
+
     containerEl.createEl('h3', { text: '模型路由' });
     containerEl.createEl('p', {
       text: '选择本会话的模型提供商。本地 = 内嵌/本机 DeepSeek gateway；远程 = OpenClaw HTTP 端点（shared-secret token，无需配对）。',
@@ -740,6 +897,7 @@ class AiVaultChatSettingTab extends PluginSettingTab {
 export default class AiVaultChatPlugin extends Plugin {
   settings!: AiVaultChatSettings;
   gatewayManager!: GatewayManager;
+  syncBridgeManager!: SyncBridgeManager;
 
   async onload() {
     await this.loadSettings();
@@ -750,6 +908,25 @@ export default class AiVaultChatPlugin extends Plugin {
       port: urlToPort(this.settings.gatewayUrl, 18791),
       autoStart: this.settings.gatewayAutoStart,
     });
+
+    this.syncBridgeManager = new SyncBridgeManager({
+      vaultPath: this._vaultBasePath(),
+      syncDirPath: this.settings.syncDirPath,
+      password: this.settings.syncBridgePassword,
+      saltFile: this.settings.syncBridgeSaltFile,
+      stateFile: this.settings.syncBridgeStateFile || this._defaultStateFile(),
+      trashPath: this.settings.syncBridgeTrashPath,
+      installDir: this.settings.syncBridgeInstallDir,
+      autoStart: this.settings.syncBridgeEnabled,
+    });
+
+    if (this.settings.syncBridgeEnabled) {
+      this.syncBridgeManager.ensureReady().then((result) => {
+        if (!result.ok) {
+          console.error('SyncBridge 自动拉起失败：', result.error);
+        }
+      });
+    }
 
     this.registerView(VIEW_TYPE_AI_CHAT, (leaf) => new AiVaultChatView(leaf, this));
 
@@ -769,6 +946,18 @@ export default class AiVaultChatPlugin extends Plugin {
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_CHAT);
     this.gatewayManager?.stop();
+    this.syncBridgeManager?.stop();
+  }
+
+  _vaultBasePath(): string {
+    const adapter = (this.app.vault.adapter as any);
+    return adapter?.basePath || adapter?.getBasePath?.() || '';
+  }
+
+  _defaultStateFile(): string {
+    const base = this._vaultBasePath();
+    if (!base) return '';
+    return `${base}/.obsidian/plugins/ai-vault-chat/sync-bridge-state.json`;
   }
 
   async loadSettings() {
